@@ -7,6 +7,8 @@ Backend je Node.js + Express API server.
 - vstupni soubor: `server.js`
 - port: `5000` (nebo `PORT` z `.env`)
 - health endpoint: `GET /api/health`
+- endpoint nemovitosti: `GET /api/properties`
+- endpoint najemnici: `GET /api/tenants`
 
 ## Udrzba kontextu
 

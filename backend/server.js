@@ -2,6 +2,8 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const propertiesRoutes = require('./routes/properties');
+const tenantsRoutes = require('./routes/tenants');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -12,6 +14,9 @@ app.use(express.json());
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
+
+app.use('/api', propertiesRoutes);
+app.use('/api', tenantsRoutes);
 
 app.listen(port, () => {
   console.log(`Backend server is running on port ${port}`);
