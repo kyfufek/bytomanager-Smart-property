@@ -1,0 +1,13 @@
+# Backend AGENT Notes
+
+Backend je Node.js + Express API server.
+
+## Zaklad
+
+- vstupni soubor: `server.js`
+- port: `5000` (nebo `PORT` z `.env`)
+- health endpoint: `GET /api/health`
+
+## Udrzba kontextu
+
+Pokud pridas novou funkci, endpoint nebo zmenis strukturu projektu, aktualizuj prislusny AGENTS.md.
