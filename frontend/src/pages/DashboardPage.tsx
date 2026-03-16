@@ -1,7 +1,7 @@
-import { TrendingUp, Users, Zap, AlertTriangle, Lightbulb } from "lucide-react";
+﻿import { useEffect, useMemo, useState } from "react";
+import { TrendingUp, Users, Home, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -10,222 +10,205 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
 
-// TODO: napojit na API
-const chartData = [
-  { month: "Led", příjmy: 120000, výdaje: 45000 },
-  { month: "Úno", příjmy: 118000, výdaje: 52000 },
-  { month: "Bře", příjmy: 125000, výdaje: 48000 },
-  { month: "Dub", příjmy: 122000, výdaje: 41000 },
-  { month: "Kvě", příjmy: 130000, výdaje: 55000 },
-  { month: "Čvn", příjmy: 125000, výdaje: 47000 },
-];
+type PropertyApiItem = {
+  id: number;
+  name: string;
+  rent: number;
+  paymentStatus: string;
+};
 
-const alerts = [
-  {
-    icon: AlertTriangle,
-    text: "🚨 Byt C: Dluh přesáhl 50 % kauce. Eskalační Auto-pilot dnes odeslal oficiální Výstrahu před výpovědí.",
-    type: "critical" as const,
-  },
-  {
-    icon: AlertTriangle,
-    text: "Nájemník v Bytě A má 3 dny zpoždění s platbou.",
-    type: "warning" as const,
-  },
-  {
-    icon: Lightbulb,
-    text: "Inflace vzrostla o 2%. Zvažte aktualizaci nájmu.",
-    type: "info" as const,
-  },
-  {
-    icon: AlertTriangle,
-    text: "Smlouva s nájemníkem Krejčí vyprší za 30 dní.",
-    type: "warning" as const,
-  },
-];
+type TenantApiItem = {
+  id: number;
+  name: string;
+  apartment: string;
+  deposit: number;
+  currentDebt: number;
+};
 
-const activities = [
-  { date: "12.06.2025", property: "Byt 3+1 Praha", event: "Platba přijata", status: "success" },
-  { date: "11.06.2025", property: "Byt 2+kk Brno", event: "Hlášení závady", status: "warning" },
-  { date: "10.06.2025", property: "Byt 1+1 Ostrava", event: "Nový nájemník", status: "success" },
-  { date: "09.06.2025", property: "Byt 3+1 Praha", event: "Dluh na nájmu", status: "destructive" },
-  { date: "08.06.2025", property: "Byt 2+kk Brno", event: "Platba přijata", status: "success" },
-];
-
-const kpiCards = [
-  {
-    title: "Měsíční příjmy",
-    value: "125 000 Kč",
-    change: "+5%",
-    icon: TrendingUp,
-    positive: true,
-  },
-  {
-    title: "Aktivní nájemníci",
-    value: "18 / 20",
-    change: "90%",
-    icon: Users,
-    positive: true,
-  },
-  {
-    title: "AI Akce",
-    value: "3 čekající",
-    change: "úkoly",
-    icon: Zap,
-    positive: false,
-  },
-];
+const statusLabelMap: Record<string, string> = {
+  uhrazeno: "Zaplaceno",
+  "po splatnosti": "Po splatnosti",
+  "ceka na platbu": "Ceka na platbu",
+};
 
 export default function DashboardPage() {
+  const [properties, setProperties] = useState<PropertyApiItem[]>([]);
+  const [tenants, setTenants] = useState<TenantApiItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadDashboardData() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const [propertiesRes, tenantsRes] = await Promise.all([
+          fetch("http://localhost:5000/api/properties", { signal: controller.signal }),
+          fetch("http://localhost:5000/api/tenants", { signal: controller.signal }),
+        ]);
+
+        if (!propertiesRes.ok || !tenantsRes.ok) {
+          throw new Error("Backend request failed");
+        }
+
+        const [propertiesData, tenantsData] = await Promise.all([
+          propertiesRes.json() as Promise<PropertyApiItem[]>,
+          tenantsRes.json() as Promise<TenantApiItem[]>,
+        ]);
+
+        setProperties(propertiesData);
+        setTenants(tenantsData);
+      } catch (err) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setError("Nepodarilo se nacist data dashboardu z backendu.");
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadDashboardData();
+    return () => controller.abort();
+  }, []);
+
+  const kpis = useMemo(() => {
+    const totalRent = properties.reduce((sum, p) => sum + Number(p.rent || 0), 0);
+    const paidCount = properties.filter((p) => p.paymentStatus === "uhrazeno").length;
+    const debtTenants = tenants.filter((t) => Number(t.currentDebt || 0) > 0).length;
+
+    return {
+      totalRent,
+      paidCount,
+      propertiesCount: properties.length,
+      tenantsCount: tenants.length,
+      debtTenants,
+    };
+  }, [properties, tenants]);
+
+  const recentRows = useMemo(() => {
+    return properties.map((property) => ({
+      key: property.id,
+      property: property.name,
+      event:
+        property.paymentStatus === "uhrazeno"
+          ? "Platba prijata"
+          : property.paymentStatus === "po splatnosti"
+          ? "Platba po splatnosti"
+          : "Ceka se na platbu",
+      status: property.paymentStatus,
+    }));
+  }, [properties]);
+
   return (
     <div className="space-y-6">
-      {/* Welcome */}
       <div>
-        <h1 className="text-2xl font-bold">
-          Vítej zpět, <span className="text-primary">Jan</span>
-        </h1>
-        {/* TODO: napojit na API - Jméno */}
-        <p className="text-muted-foreground">Zde je přehled tvých nemovitostí.</p>
+        <h1 className="text-2xl font-bold">Dashboard</h1>
+        <p className="text-muted-foreground">Prehled nemovitosti a najemniku z backend API.</p>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {kpiCards.map((kpi) => (
-          <Card key={kpi.title} className="card-shadow hover:card-shadow-hover transition-shadow">
-            <CardContent className="flex items-center gap-4 p-5">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                <kpi.icon className="h-6 w-6 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{kpi.title}</p>
-                <p className="text-2xl font-bold">{kpi.value}</p>
-                <Badge
-                  variant={kpi.positive ? "default" : "secondary"}
-                  className={
-                    kpi.positive
-                      ? "bg-success/10 text-success border-0 mt-1"
-                      : "bg-primary/10 text-primary border-0 mt-1"
-                  }
-                >
-                  {kpi.change}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {loading && <p className="text-sm text-muted-foreground">Nacitam data...</p>}
+      {!loading && error && <p className="text-sm text-destructive">{error}</p>}
 
-      {/* Chart + Alerts */}
-      <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3 card-shadow">
-          <CardHeader>
-            <CardTitle className="text-base">Příjmy vs Výdaje</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: "0.5rem",
-                      border: "1px solid hsl(var(--border))",
-                      background: "hsl(var(--card))",
-                    }}
-                  />
-                  <Legend />
-                  <Bar dataKey="příjmy" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="výdaje" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="card-shadow">
+          <CardContent className="p-5 flex items-center gap-3">
+            <Home className="h-6 w-6 text-primary" />
+            <div>
+              <p className="text-sm text-muted-foreground">Nemovitosti</p>
+              <p className="text-2xl font-bold">{kpis.propertiesCount}</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2 card-shadow">
-          <CardHeader>
-            <CardTitle className="text-base">AI Smart Alerts</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {alerts.map((alert, i) => (
-                <div
-                  key={i}
-                  className={`flex items-start gap-3 rounded-lg border p-3 ${
-                    alert.type === "critical" ? "bg-destructive/5 border-destructive/30" : "bg-accent/50"
-                  }`}
-                >
-                  <alert.icon
-                    className={`h-5 w-5 shrink-0 mt-0.5 ${
-                      alert.type === "critical" ? "text-destructive" : alert.type === "warning" ? "text-warning" : "text-primary"
-                  }`}
-                />
-                <div className="flex-1">
-                  <p className="text-sm">{alert.text}</p>
-                  <Button variant="ghost" size="sm" className="mt-1 h-7 text-xs text-primary">
-                    Zobrazit detail →
-                  </Button>
-                </div>
-              </div>
-            ))}
+        <Card className="card-shadow">
+          <CardContent className="p-5 flex items-center gap-3">
+            <Users className="h-6 w-6 text-primary" />
+            <div>
+              <p className="text-sm text-muted-foreground">Najemnici</p>
+              <p className="text-2xl font-bold">{kpis.tenantsCount}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="card-shadow">
+          <CardContent className="p-5 flex items-center gap-3">
+            <TrendingUp className="h-6 w-6 text-success" />
+            <div>
+              <p className="text-sm text-muted-foreground">Mesicni najem</p>
+              <p className="text-2xl font-bold">{kpis.totalRent.toLocaleString("cs-CZ")} Kc</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="card-shadow">
+          <CardContent className="p-5 flex items-center gap-3">
+            <AlertTriangle className="h-6 w-6 text-warning" />
+            <div>
+              <p className="text-sm text-muted-foreground">Najemnici s dluhem</p>
+              <p className="text-2xl font-bold">{kpis.debtTenants}</p>
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Activity Table */}
       <Card className="card-shadow">
         <CardHeader>
-          <CardTitle className="text-base">Poslední aktivity</CardTitle>
+          <CardTitle className="text-base">Stav plateb podle nemovitosti</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Datum</TableHead>
                 <TableHead>Nemovitost</TableHead>
-                <TableHead>Událost</TableHead>
+                <TableHead>Udalost</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {activities.map((a, i) => (
-                <TableRow key={i}>
-                  <TableCell className="text-muted-foreground">{a.date}</TableCell>
-                  <TableCell className="font-medium">{a.property}</TableCell>
-                  <TableCell>{a.event}</TableCell>
+              {recentRows.map((row) => (
+                <TableRow key={row.key}>
+                  <TableCell className="font-medium">{row.property}</TableCell>
+                  <TableCell>{row.event}</TableCell>
                   <TableCell>
                     <Badge
                       variant="secondary"
                       className={
-                        a.status === "success"
+                        row.status === "uhrazeno"
                           ? "bg-success/10 text-success border-0"
-                          : a.status === "destructive"
+                          : row.status === "po splatnosti"
                           ? "bg-destructive/10 text-destructive border-0"
                           : "bg-warning/10 text-warning border-0"
                       }
                     >
-                      {a.status === "success"
-                        ? "OK"
-                        : a.status === "destructive"
-                        ? "Dluh"
-                        : "Pozor"}
+                      {statusLabelMap[row.status] ?? row.status}
                     </Badge>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+          {!loading && !error && recentRows.length === 0 && (
+            <p className="text-sm text-muted-foreground pt-3">Zatim nejsou dostupna zadna data.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="card-shadow">
+        <CardContent className="p-5 flex items-center justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">Uhrazene nemovitosti</p>
+            <p className="text-xl font-semibold">
+              {kpis.paidCount} / {kpis.propertiesCount}
+            </p>
+          </div>
+          <Badge className="bg-primary/10 text-primary border-0">Live API</Badge>
         </CardContent>
       </Card>
     </div>
