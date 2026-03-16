@@ -9,6 +9,7 @@ Backend je Node.js + Express API server.
 - health endpoint: `GET /api/health`
 - endpoint nemovitosti: `GET /api/properties`
 - endpoint najemnici: `GET /api/tenants`
+- endpoint AI chat: `POST /api/chat` (simulovana RAG odpoved)
 
 ## Udrzba kontextu
 

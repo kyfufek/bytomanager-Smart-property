@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const propertiesRoutes = require('./routes/properties');
 const tenantsRoutes = require('./routes/tenants');
+const aiChatRoutes = require('./routes/aiChat');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -17,6 +18,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api', propertiesRoutes);
 app.use('/api', tenantsRoutes);
+app.use('/api', aiChatRoutes);
 
 app.listen(port, () => {
   console.log(`Backend server is running on port ${port}`);
