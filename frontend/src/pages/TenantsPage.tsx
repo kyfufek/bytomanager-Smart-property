@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { buildApiUrl } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -216,7 +217,7 @@ export default function TenantsPage() {
         setLoading(true);
         setError("");
 
-        const response = await fetch("http://localhost:5000/api/tenants", {
+        const response = await fetch(buildApiUrl("/api/tenants"), {
           signal: controller.signal,
         });
 

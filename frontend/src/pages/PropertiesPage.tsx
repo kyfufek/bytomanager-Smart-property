@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { buildApiUrl } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -34,7 +35,7 @@ export default function PropertiesPage() {
         setLoading(true);
         setError("");
 
-        const response = await fetch("http://localhost:5000/api/properties", {
+        const response = await fetch(buildApiUrl("/api/properties"), {
           signal: controller.signal,
         });
 

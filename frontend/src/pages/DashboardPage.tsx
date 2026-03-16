@@ -2,6 +2,7 @@
 import { TrendingUp, Users, Home, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { buildApiUrl } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -47,8 +48,8 @@ export default function DashboardPage() {
         setError("");
 
         const [propertiesRes, tenantsRes] = await Promise.all([
-          fetch("http://localhost:5000/api/properties", { signal: controller.signal }),
-          fetch("http://localhost:5000/api/tenants", { signal: controller.signal }),
+          fetch(buildApiUrl("/api/properties"), { signal: controller.signal }),
+          fetch(buildApiUrl("/api/tenants"), { signal: controller.signal }),
         ]);
 
         if (!propertiesRes.ok || !tenantsRes.ok) {
