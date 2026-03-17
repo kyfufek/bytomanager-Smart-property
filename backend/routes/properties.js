@@ -6,12 +6,66 @@ const router = express.Router();
 
 router.use(requireAuth);
 
-function isMissingColumnError(error, columnName) {
-  const text = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`.toLowerCase();
-  return (
-    (text.includes('column') || text.includes('schema cache') || text.includes('could not find')) &&
-    text.includes(columnName.toLowerCase())
-  );
+function getMissingColumnName(error) {
+  const raw = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
+  const singleQuoted = raw.match(/'([a-zA-Z0-9_]+)'/);
+  if (singleQuoted?.[1]) return singleQuoted[1];
+
+  const doubleQuoted = raw.match(/"([a-zA-Z0-9_]+)"/);
+  if (doubleQuoted?.[1]) return doubleQuoted[1];
+
+  const columnPattern = raw.match(/column\s+([a-zA-Z0-9_]+)\s+(does not exist|of relation)/i);
+  if (columnPattern?.[1]) return columnPattern[1];
+
+  return null;
+}
+
+async function insertPropertyWithFallback(basePayload) {
+  const payload = { ...basePayload };
+  let attempts = 0;
+
+  while (attempts < 8) {
+    attempts += 1;
+    const result = await supabase.from('properties').insert(payload).select('*').single();
+    if (!result.error) return result;
+
+    const missingColumn = getMissingColumnName(result.error);
+    if (!missingColumn || typeof payload[missingColumn] === 'undefined') {
+      return result;
+    }
+
+    console.error(`[properties] Missing "${missingColumn}" column in Supabase table. Retrying insert without it.`, result.error);
+    delete payload[missingColumn];
+  }
+
+  return { data: null, error: { message: 'Insert retry limit exceeded due schema mismatch.' } };
+}
+
+async function updatePropertyWithFallback(propertyId, ownerId, basePayload) {
+  const payload = { ...basePayload };
+  let attempts = 0;
+
+  while (attempts < 8) {
+    attempts += 1;
+    const result = await supabase
+      .from('properties')
+      .update(payload)
+      .eq('id', propertyId)
+      .eq('owner_id', ownerId)
+      .select();
+
+    if (!result.error) return result;
+
+    const missingColumn = getMissingColumnName(result.error);
+    if (!missingColumn || typeof payload[missingColumn] === 'undefined') {
+      return result;
+    }
+
+    console.error(`[properties] Missing "${missingColumn}" column in Supabase table. Retrying update without it.`, result.error);
+    delete payload[missingColumn];
+  }
+
+  return { data: null, error: { message: 'Update retry limit exceeded due schema mismatch.' } };
 }
 
 router.get('/properties', async (req, res) => {
@@ -53,22 +107,7 @@ router.post('/properties', async (req, res) => {
     owner_id: req.user.id,
   };
 
-  let insertPayload = { ...payload };
-  let { data, error } = await supabase
-    .from('properties')
-    .insert(insertPayload)
-    .select('*')
-    .single();
-
-  if (error && isMissingColumnError(error, 'rent')) {
-    console.error('[properties] Missing "rent" column in Supabase table. Retrying insert without rent.', error);
-    delete insertPayload.rent;
-    ({ data, error } = await supabase
-      .from('properties')
-      .insert(insertPayload)
-      .select('*')
-      .single());
-  }
+  const { data, error } = await insertPropertyWithFallback(payload);
 
   if (error) {
     console.error(error);
@@ -112,24 +151,7 @@ async function updatePropertyHandler(req, res) {
       return res.status(400).json({ error: 'No fields provided for update.' });
     }
 
-    let updatePayload = { ...payload };
-    let { data, error } = await supabase
-      .from('properties')
-      .update(updatePayload)
-      .eq('id', propertyId)
-      .eq('owner_id', req.user.id)
-      .select();
-
-    if (error && isMissingColumnError(error, 'rent')) {
-      console.error('[properties] Missing "rent" column in Supabase table. Retrying update without rent.', error);
-      delete updatePayload.rent;
-      ({ data, error } = await supabase
-        .from('properties')
-        .update(updatePayload)
-        .eq('id', propertyId)
-        .eq('owner_id', req.user.id)
-        .select());
-    }
+    const { data, error } = await updatePropertyWithFallback(propertyId, req.user.id, payload);
 
     if (error) {
       console.error(error);
