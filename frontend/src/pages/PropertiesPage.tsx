@@ -45,6 +45,13 @@ export default function PropertiesPage() {
   const [rent, setRent] = useState("");
   const [notes, setNotes] = useState("");
 
+  function parseRentInput(value: string) {
+    const cleaned = value.replace(/[^0-9.,]/g, "").replace(",", ".");
+    const parsed = Number(cleaned);
+    if (!Number.isFinite(parsed) || parsed < 0) return 0;
+    return parsed;
+  }
+
   function resetForm() {
     setName("");
     setAddress("");
@@ -146,7 +153,7 @@ export default function PropertiesPage() {
         city: city.trim() || null,
         postal_code: postalCode.trim() || null,
         units_count: Number(unitsCount) > 0 ? Number(unitsCount) : 1,
-        rent: Number(rent) >= 0 ? Number(rent) : 0,
+        rent: parseRentInput(rent),
         notes: notes.trim() || null,
       };
 
@@ -277,9 +284,9 @@ export default function PropertiesPage() {
               <div className="space-y-2">
                 <Label>Najemne (Kc)</Label>
                 <Input
-                  type="number"
-                  min="0"
-                  step="1"
+                  type="text"
+                  inputMode="decimal"
+                  pattern="[0-9., ]*"
                   value={rent}
                   onChange={(e) => setRent(e.target.value)}
                   placeholder="18000"
