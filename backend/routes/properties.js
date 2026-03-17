@@ -9,11 +9,12 @@ router.use(requireAuth);
 router.get('/properties', async (req, res) => {
   const { data, error } = await supabase
     .from('properties')
-    .select('id, owner_id, name, address, city, postal_code, units_count, rent, payment_status, notes, created_at, updated_at')
+    .select('*')
     .eq('owner_id', req.user.id);
 
   if (error) {
-    return res.status(500).json({ error: 'Failed to fetch properties.' });
+    console.error(error);
+    return res.status(500).json({ error: 'Failed to fetch properties.', details: error.message });
   }
 
   const normalized = (data || []).map((row) => ({
@@ -47,11 +48,12 @@ router.post('/properties', async (req, res) => {
   const { data, error } = await supabase
     .from('properties')
     .insert(payload)
-    .select('id, owner_id, name, address, city, postal_code, units_count, rent, payment_status, notes, created_at, updated_at')
+    .select('*')
     .single();
 
   if (error) {
-    return res.status(500).json({ error: 'Failed to create property.' });
+    console.error(error);
+    return res.status(500).json({ error: 'Failed to create property.', details: error.message });
   }
 
   return res.status(201).json({
