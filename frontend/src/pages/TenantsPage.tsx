@@ -21,10 +21,15 @@ import {
 type TenantApiItem = {
   id: string;
   name: string;
-  apartment: string;
+  apartment: string | null;
   deposit: number;
   currentDebt: number;
   property_id?: string;
+  property_rent?: number;
+  properties?: {
+    name?: string | null;
+    rent?: number | null;
+  } | null;
 };
 
 type TenantViewModel = {
@@ -32,6 +37,7 @@ type TenantViewModel = {
   propertyId?: string;
   name: string;
   unit: string;
+  propertyRent: number;
   paid: boolean;
   initials: string;
   deposit: number;
@@ -69,11 +75,13 @@ function getInitials(name: string) {
 }
 
 function mapTenantApiToViewModel(item: TenantApiItem): TenantViewModel {
+  const resolvedUnit = item.apartment ?? item.properties?.name ?? "Bez bytu";
   return {
     id: item.id,
     propertyId: item.property_id,
     name: item.name,
-    unit: item.apartment,
+    unit: resolvedUnit,
+    propertyRent: Number(item.property_rent ?? item.properties?.rent ?? 0),
     paid: Number(item.currentDebt || 0) <= 0,
     initials: getInitials(item.name),
     deposit: Number(item.deposit || 0),
@@ -106,6 +114,14 @@ function DepositHealthBar({ deposit, debt }: { deposit: number; debt: number }) 
         Zbyva: {remaining.toLocaleString("cs-CZ")} Kc ({Math.round(percentage)} %)
       </p>
     </div>
+  );
+}
+
+function PrescribedRent({ propertyId, rent }: { propertyId?: string; rent: number }) {
+  return (
+    <p className="text-xs text-muted-foreground">
+      {propertyId ? `Predepsane najemne: ${rent.toLocaleString("cs-CZ")} Kc` : "Bez bytu"}
+    </p>
   );
 }
 
@@ -520,6 +536,7 @@ export default function TenantsPage() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{tenant.name}</p>
                           <p className="text-xs text-muted-foreground truncate">{tenant.unit}</p>
+                          <PrescribedRent propertyId={tenant.propertyId} rent={tenant.propertyRent} />
                         </div>
                         <Badge
                           variant="secondary"
@@ -556,6 +573,9 @@ export default function TenantsPage() {
                 <div className="min-w-0">
                   <p className="font-semibold truncate">{selectedTenant?.name ?? "Neni vybran najemnik"}</p>
                   <p className="text-sm text-muted-foreground truncate">{selectedTenant?.unit ?? "-"}</p>
+                  {selectedTenant && (
+                    <PrescribedRent propertyId={selectedTenant.propertyId} rent={selectedTenant.propertyRent} />
+                  )}
                 </div>
               </div>
               <div className="flex-1">

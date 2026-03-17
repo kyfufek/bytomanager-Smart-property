@@ -91,7 +91,7 @@ backend/
 ```
 
 ### Aktualni stav a ukoly
-- Server bezi a vraci mock data z GET endpointu (napr. `/api/properties`, `/api/tenants`).
+- Server bezi a vraci mock data z GET endpointu (napr. `/api/properties`, `/api/tenants`, `/api/tenants/:id`).
 - Existuji i endpointy pro AI chat a pokrocile vyuctovani.
 
 ### Pridani noveho endpointu

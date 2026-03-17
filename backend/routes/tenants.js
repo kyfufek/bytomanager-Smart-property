@@ -9,7 +9,7 @@ router.use(requireAuth);
 router.get('/tenants', async (req, res) => {
   const { data, error } = await supabase
     .from('tenants')
-    .select('*, properties(name)')
+    .select('*, properties(name, rent)')
     .eq('owner_id', req.user.id);
 
   if (error) {
@@ -21,11 +21,40 @@ router.get('/tenants', async (req, res) => {
     // Frontend currently expects these keys.
     name: row.name ?? row.full_name,
     apartment: row.apartment ?? row.properties?.name ?? null,
+    property_rent: Number(row.property_rent ?? row.properties?.rent ?? 0),
     deposit: Number(row.deposit ?? 0),
     currentDebt: Number(row.currentDebt ?? row.current_debt ?? 0),
   }));
 
   return res.json(normalized);
+});
+
+router.get('/tenants/:id', async (req, res) => {
+  const { id } = req.params;
+
+  const { data, error } = await supabase
+    .from('tenants')
+    .select('*, properties(name, rent)')
+    .eq('id', id)
+    .eq('owner_id', req.user.id)
+    .maybeSingle();
+
+  if (error) {
+    return res.status(500).json({ error: 'Failed to fetch tenant detail.' });
+  }
+
+  if (!data) {
+    return res.status(404).json({ error: 'Tenant not found.' });
+  }
+
+  return res.json({
+    ...data,
+    name: data?.name ?? data?.full_name,
+    apartment: data?.apartment ?? data?.properties?.name ?? null,
+    property_rent: Number(data?.property_rent ?? data?.properties?.rent ?? 0),
+    deposit: Number(data?.deposit ?? 0),
+    currentDebt: Number(data?.currentDebt ?? data?.current_debt ?? 0),
+  });
 });
 
 router.post('/tenants', async (req, res) => {
@@ -76,7 +105,7 @@ router.post('/tenants', async (req, res) => {
   const { data, error } = await supabase
     .from('tenants')
     .insert(payload)
-    .select('*, properties(name)')
+    .select('*, properties(name, rent)')
     .single();
 
   if (error) {
@@ -87,6 +116,7 @@ router.post('/tenants', async (req, res) => {
     ...data,
     name: data?.name ?? data?.full_name,
     apartment: data?.apartment ?? data?.properties?.name ?? null,
+    property_rent: Number(data?.property_rent ?? data?.properties?.rent ?? 0),
     deposit: Number(data?.deposit ?? 0),
     currentDebt: Number(data?.currentDebt ?? data?.current_debt ?? 0),
   });
