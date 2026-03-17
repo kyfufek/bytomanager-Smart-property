@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { buildApiUrl } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -15,8 +15,10 @@ import {
 } from "@/components/ui/dialog";
 
 type PropertyApiItem = {
-  id: number;
+  id: number | string;
   name: string;
+  address?: string | null;
+  city?: string | null;
   rent: number;
   paymentStatus: string;
 };
@@ -27,39 +29,117 @@ export default function PropertiesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    const controller = new AbortController();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [deletingId, setDeletingId] = useState<string | number | null>(null);
 
-    async function loadProperties() {
-      try {
-        setLoading(true);
-        setError("");
+  const [name, setName] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [unitsCount, setUnitsCount] = useState("1");
+  const [rent, setRent] = useState("");
+  const [notes, setNotes] = useState("");
 
-        const response = await fetch(buildApiUrl("/api/properties"), {
-          signal: controller.signal,
-        });
+  async function loadProperties(signal?: AbortSignal) {
+    try {
+      setLoading(true);
+      setError("");
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+      const response = await apiFetch("/api/properties", { signal });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
 
-        const data = (await response.json()) as PropertyApiItem[];
-        setProperties(data);
-      } catch (err) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setError("Nepodarilo se nacist nemovitosti z backendu.");
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
+      const data = (await response.json()) as PropertyApiItem[];
+      setProperties(data);
+    } catch {
+      if (signal?.aborted) {
+        return;
+      }
+      setError("Nepodarilo se nacist nemovitosti z backendu.");
+    } finally {
+      if (!signal?.aborted) {
+        setLoading(false);
       }
     }
+  }
 
-    loadProperties();
+  useEffect(() => {
+    const controller = new AbortController();
+    loadProperties(controller.signal);
     return () => controller.abort();
   }, []);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSubmitting) return;
+    setFormError("");
+
+    if (!name.trim()) {
+      setFormError("Nazev je povinny.");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const response = await apiFetch("/api/properties", {
+        method: "POST",
+        body: JSON.stringify({
+          name: name.trim(),
+          address: address.trim() || null,
+          city: city.trim() || null,
+          postal_code: postalCode.trim() || null,
+          units_count: Number(unitsCount) > 0 ? Number(unitsCount) : 1,
+          rent: Number(rent) >= 0 ? Number(rent) : 0,
+          notes: notes.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      setOpen(false);
+      setName("");
+      setAddress("");
+      setCity("");
+      setPostalCode("");
+      setUnitsCount("1");
+      setRent("");
+      setNotes("");
+      await loadProperties();
+    } catch {
+      setFormError("Nepodarilo se ulozit nemovitost.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleDelete(propertyId: string | number) {
+    if (deletingId !== null) return;
+
+    const confirmed = window.confirm("Opravdu chcete tuto nemovitost smazat?");
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(propertyId);
+      const response = await apiFetch(`/api/properties/${propertyId}`, {
+        method: "DELETE",
+      });
+
+      // If the item was already deleted by a duplicate request, treat as success.
+      if (!response.ok && response.status !== 204 && response.status !== 404) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      await loadProperties();
+    } catch {
+      setError("Nepodarilo se smazat nemovitost.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -78,21 +158,70 @@ export default function PropertiesPage() {
             <DialogHeader>
               <DialogTitle>Pridat novou nemovitost</DialogTitle>
             </DialogHeader>
-            <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); setOpen(false); }}>
+            <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="space-y-2">
                 <Label>Nazev</Label>
-                <Input placeholder="Byt 2+1 Praha" />
+                <Input
+                  placeholder="Byt 2+1 Praha"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label>Adresa</Label>
-                <Input placeholder="Ulice a cislo" />
+                <Input
+                  placeholder="Ulice a cislo"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
-                <Label>Mesicni najemne</Label>
-                <Input placeholder="15000 Kc" />
+                <Label>Mesto</Label>
+                <Input
+                  placeholder="Praha"
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                />
               </div>
-              <Button type="submit" variant="cta" className="w-full">
-                Ulozit nemovitost
+              <div className="space-y-2">
+                <Label>PSC</Label>
+                <Input
+                  placeholder="12000"
+                  value={postalCode}
+                  onChange={(e) => setPostalCode(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Pocet jednotek</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={unitsCount}
+                  onChange={(e) => setUnitsCount(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Najemne (Kc)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={rent}
+                  onChange={(e) => setRent(e.target.value)}
+                  placeholder="18000"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Poznamka</Label>
+                <Input
+                  placeholder="Nepovinny komentar"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              </div>
+              {formError && <p className="text-xs text-destructive">{formError}</p>}
+              <Button type="submit" variant="cta" className="w-full" disabled={isSubmitting}>
+                {isSubmitting ? "Ukladam..." : "Ulozit nemovitost"}
               </Button>
             </form>
           </DialogContent>
@@ -129,12 +258,23 @@ export default function PropertiesPage() {
                 </div>
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   <MapPin className="h-3.5 w-3.5" />
-                  Adresa neni dostupna
+                  {property.address || property.city
+                    ? [property.address, property.city].filter(Boolean).join(", ")
+                    : "Adresa neni dostupna"}
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Najemne</span>
-                  <span className="font-semibold">{property.rent.toLocaleString("cs-CZ")} Kc</span>
+                  <span className="font-semibold">{Number(property.rent ?? 0).toLocaleString("cs-CZ")} Kc</span>
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  disabled={deletingId === property.id}
+                  onClick={() => handleDelete(property.id)}
+                >
+                  {deletingId === property.id ? "Mazani..." : "Smazat"}
+                </Button>
               </CardContent>
             </Card>
           ))}
