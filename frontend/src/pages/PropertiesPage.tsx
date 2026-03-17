@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from "react";
-import { Plus, Building, MapPin } from "lucide-react";
+import { Plus, Building, MapPin, Pencil } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,9 @@ type PropertyApiItem = {
   name: string;
   address?: string | null;
   city?: string | null;
+  postal_code?: string | null;
+  units_count?: number | null;
+  notes?: string | null;
   rent: number;
   paymentStatus: string;
 };
@@ -32,6 +35,7 @@ export default function PropertiesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [deletingId, setDeletingId] = useState<string | number | null>(null);
+  const [editingId, setEditingId] = useState<string | number | null>(null);
 
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -40,6 +44,52 @@ export default function PropertiesPage() {
   const [unitsCount, setUnitsCount] = useState("1");
   const [rent, setRent] = useState("");
   const [notes, setNotes] = useState("");
+
+  function resetForm() {
+    setName("");
+    setAddress("");
+    setCity("");
+    setPostalCode("");
+    setUnitsCount("1");
+    setRent("");
+    setNotes("");
+    setFormError("");
+  }
+
+  function normalizeProperty(item: PropertyApiItem): PropertyApiItem {
+    return {
+      ...item,
+      rent: Number(item.rent ?? 0),
+      paymentStatus: item.paymentStatus ?? "ceka na platbu",
+    };
+  }
+
+  function openCreateDialog() {
+    setEditingId(null);
+    resetForm();
+    setOpen(true);
+  }
+
+  function openEditDialog(property: PropertyApiItem) {
+    setEditingId(property.id);
+    setName(property.name ?? "");
+    setAddress(property.address ?? "");
+    setCity(property.city ?? "");
+    setPostalCode(property.postal_code ?? "");
+    setUnitsCount(String(property.units_count ?? 1));
+    setRent(String(property.rent ?? 0));
+    setNotes(property.notes ?? "");
+    setFormError("");
+    setOpen(true);
+  }
+
+  function handleDialogOpenChange(nextOpen: boolean) {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      setEditingId(null);
+      resetForm();
+    }
+  }
 
   async function loadProperties(signal?: AbortSignal) {
     try {
@@ -52,7 +102,7 @@ export default function PropertiesPage() {
       }
 
       const data = (await response.json()) as PropertyApiItem[];
-      setProperties(data);
+      setProperties(data.map(normalizeProperty));
     } catch {
       if (signal?.aborted) {
         return;
@@ -83,34 +133,39 @@ export default function PropertiesPage() {
 
     try {
       setIsSubmitting(true);
-      const response = await apiFetch("/api/properties", {
-        method: "POST",
-        body: JSON.stringify({
-          name: name.trim(),
-          address: address.trim() || null,
-          city: city.trim() || null,
-          postal_code: postalCode.trim() || null,
-          units_count: Number(unitsCount) > 0 ? Number(unitsCount) : 1,
-          rent: Number(rent) >= 0 ? Number(rent) : 0,
-          notes: notes.trim() || null,
-        }),
-      });
+      const payload = {
+        name: name.trim(),
+        address: address.trim() || null,
+        city: city.trim() || null,
+        postal_code: postalCode.trim() || null,
+        units_count: Number(unitsCount) > 0 ? Number(unitsCount) : 1,
+        rent: Number(rent) >= 0 ? Number(rent) : 0,
+        notes: notes.trim() || null,
+      };
+
+      const isEditing = editingId !== null;
+      const response = await apiFetch(
+        isEditing ? `/api/properties/${editingId}` : "/api/properties",
+        {
+          method: isEditing ? "PUT" : "POST",
+          body: JSON.stringify(payload),
+        },
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
 
+      const saved = normalizeProperty((await response.json()) as PropertyApiItem);
+      setProperties((prev) =>
+        isEditing ? prev.map((item) => (item.id === saved.id ? saved : item)) : [saved, ...prev],
+      );
+
       setOpen(false);
-      setName("");
-      setAddress("");
-      setCity("");
-      setPostalCode("");
-      setUnitsCount("1");
-      setRent("");
-      setNotes("");
-      await loadProperties();
+      setEditingId(null);
+      resetForm();
     } catch {
-      setFormError("Nepodarilo se ulozit nemovitost.");
+      setFormError(editingId ? "Nepodarilo se upravit nemovitost." : "Nepodarilo se ulozit nemovitost.");
     } finally {
       setIsSubmitting(false);
     }
@@ -133,7 +188,7 @@ export default function PropertiesPage() {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      await loadProperties();
+      setProperties((prev) => prev.filter((item) => item.id !== propertyId));
     } catch {
       setError("Nepodarilo se smazat nemovitost.");
     } finally {
@@ -148,15 +203,15 @@ export default function PropertiesPage() {
           <h1 className="text-2xl font-bold">Moje nemovitosti</h1>
           <p className="text-muted-foreground">Sprava bytovych jednotek z backend API</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={handleDialogOpenChange}>
           <DialogTrigger asChild>
-            <Button variant="cta">
+            <Button variant="cta" onClick={openCreateDialog}>
               <Plus className="mr-2 h-4 w-4" /> Pridat nemovitost
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Pridat novou nemovitost</DialogTitle>
+              <DialogTitle>{editingId ? "Upravit nemovitost" : "Pridat novou nemovitost"}</DialogTitle>
             </DialogHeader>
             <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="space-y-2">
@@ -221,7 +276,7 @@ export default function PropertiesPage() {
               </div>
               {formError && <p className="text-xs text-destructive">{formError}</p>}
               <Button type="submit" variant="cta" className="w-full" disabled={isSubmitting}>
-                {isSubmitting ? "Ukladam..." : "Ulozit nemovitost"}
+                {isSubmitting ? "Ukladam..." : editingId ? "Ulozit zmeny" : "Ulozit nemovitost"}
               </Button>
             </form>
           </DialogContent>
@@ -266,15 +321,20 @@ export default function PropertiesPage() {
                   <span className="text-muted-foreground">Najemne</span>
                   <span className="font-semibold">{Number(property.rent ?? 0).toLocaleString("cs-CZ")} Kc</span>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  disabled={deletingId === property.id}
-                  onClick={() => handleDelete(property.id)}
-                >
-                  {deletingId === property.id ? "Mazani..." : "Smazat"}
-                </Button>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" variant="outline" onClick={() => openEditDialog(property)}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Upravit
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={deletingId === property.id}
+                    onClick={() => handleDelete(property.id)}
+                  >
+                    {deletingId === property.id ? "Mazani..." : "Smazat"}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}
