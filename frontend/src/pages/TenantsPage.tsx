@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { buildApiUrl } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -19,15 +19,17 @@ import {
 } from "@/components/ui/dialog";
 
 type TenantApiItem = {
-  id: number;
+  id: string;
   name: string;
   apartment: string;
   deposit: number;
   currentDebt: number;
+  property_id?: string;
 };
 
 type TenantViewModel = {
-  id: number;
+  id: string;
+  propertyId?: string;
   name: string;
   unit: string;
   paid: boolean;
@@ -36,6 +38,11 @@ type TenantViewModel = {
   debt: number;
   dueDay: number;
   toleranceDays: number;
+};
+
+type PropertyOption = {
+  id: string;
+  name: string;
 };
 
 const mockMessages = [
@@ -55,6 +62,7 @@ function getInitials(name: string) {
 function mapTenantApiToViewModel(item: TenantApiItem): TenantViewModel {
   return {
     id: item.id,
+    propertyId: item.property_id,
     name: item.name,
     unit: item.apartment,
     paid: Number(item.currentDebt || 0) <= 0,
@@ -204,46 +212,124 @@ function EscalationAutoPilot() {
 
 export default function TenantsPage() {
   const [tenants, setTenants] = useState<TenantViewModel[]>([]);
+  const [properties, setProperties] = useState<PropertyOption[]>([]);
   const [selectedTenant, setSelectedTenant] = useState<TenantViewModel | null>(null);
   const [inputMsg, setInputMsg] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createPropertyId, setCreatePropertyId] = useState("");
+  const [createError, setCreateError] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  async function loadTenants(signal?: AbortSignal) {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await apiFetch("/api/tenants", {
+        signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = (await response.json()) as TenantApiItem[];
+      const mapped = data.map(mapTenantApiToViewModel);
+      setTenants(mapped);
+      setSelectedTenant((prev) => {
+        if (!mapped.length) return null;
+        if (!prev) return mapped[0];
+        return mapped.find((item) => item.id === prev.id) ?? mapped[0];
+      });
+    } catch (err) {
+      if (signal?.aborted) {
+        return;
+      }
+      setError("Nepodarilo se nacist najemniky z backendu.");
+    } finally {
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
+    }
+  }
+
+  async function loadProperties(signal?: AbortSignal) {
+    const response = await apiFetch("/api/properties", { signal });
+    if (!response.ok) return;
+    const data = (await response.json()) as PropertyOption[];
+    setProperties(data);
+    if (data.length && !createPropertyId) {
+      setCreatePropertyId(data[0].id);
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
-
-    async function loadTenants() {
-      try {
-        setLoading(true);
-        setError("");
-
-        const response = await fetch(buildApiUrl("/api/tenants"), {
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const data = (await response.json()) as TenantApiItem[];
-        const mapped = data.map(mapTenantApiToViewModel);
-        setTenants(mapped);
-        setSelectedTenant((prev) => prev ?? mapped[0] ?? null);
-      } catch (err) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setError("Nepodarilo se nacist najemniky z backendu.");
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    loadTenants();
+    loadTenants(controller.signal);
+    loadProperties(controller.signal);
     return () => controller.abort();
   }, []);
+
+  async function handleCreateTenant(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isCreating) return;
+    setCreateError("");
+
+    if (!createName.trim() || !createPropertyId) {
+      setCreateError("Vypln jmeno a vyber nemovitost.");
+      return;
+    }
+
+    try {
+      setIsCreating(true);
+      const response = await apiFetch("/api/tenants", {
+        method: "POST",
+        body: JSON.stringify({
+          full_name: createName.trim(),
+          property_id: createPropertyId,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      setCreateName("");
+      setIsCreateOpen(false);
+      await loadTenants();
+    } catch (err) {
+      setCreateError("Nepodarilo se vytvorit najemnika.");
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
+  async function handleDeleteTenant() {
+    if (!selectedTenant || deletingId !== null) return;
+    const confirmed = window.confirm(`Opravdu smazat najemnika ${selectedTenant.name}?`);
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(selectedTenant.id);
+      const response = await apiFetch(`/api/tenants/${selectedTenant.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok && response.status !== 204 && response.status !== 404) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      await loadTenants();
+    } catch (err) {
+      setError("Nepodarilo se smazat najemnika.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   const headerName = useMemo(() => selectedTenant?.name ?? "-", [selectedTenant]);
 
@@ -253,6 +339,48 @@ export default function TenantsPage() {
         <h1 className="text-2xl font-bold">Najemnici a AI komunikace</h1>
         <p className="text-muted-foreground">Sprava najemniku, kauce a eskalacni auto-pilot</p>
       </div>
+
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogTrigger asChild>
+          <Button variant="cta">Pridat najemnika</Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Pridat najemnika</DialogTitle>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={handleCreateTenant}>
+            <div className="space-y-2">
+              <Label htmlFor="tenant-name">Cele jmeno</Label>
+              <Input
+                id="tenant-name"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder="Jan Novak"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="tenant-property">Nemovitost</Label>
+              <select
+                id="tenant-property"
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                value={createPropertyId}
+                onChange={(e) => setCreatePropertyId(e.target.value)}
+              >
+                <option value="">Vyber nemovitost</option>
+                {properties.map((property) => (
+                  <option key={property.id} value={property.id}>
+                    {property.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {createError && <p className="text-xs text-destructive">{createError}</p>}
+            <Button type="submit" variant="cta" className="w-full" disabled={isCreating}>
+              {isCreating ? "Ukladam..." : "Ulozit najemnika"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {loading && <p className="text-sm text-muted-foreground">Nacitam najemniky...</p>}
       {!loading && error && <p className="text-sm text-destructive">{error}</p>}
@@ -326,6 +454,14 @@ export default function TenantsPage() {
                 <DepositHealthBar deposit={selectedTenant?.deposit ?? 0} debt={selectedTenant?.debt ?? 0} />
               </div>
               {selectedTenant && <ContractSettingsModal tenant={selectedTenant} />}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleDeleteTenant}
+                disabled={!selectedTenant || deletingId === selectedTenant?.id}
+              >
+                {deletingId === selectedTenant?.id ? "Mazani..." : "Smazat najemnika"}
+              </Button>
             </CardContent>
           </Card>
 
