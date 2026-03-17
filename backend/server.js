@@ -4,7 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const propertiesRoutes = require('./routes/properties');
 const tenantsRoutes = require('./routes/tenants');
-const paymentsRoutes = require('./routes/payments');
+const paymentsRouter = require('./routes/payments');
 const aiChatRoutes = require('./routes/aiChat');
 const advancedBillingRoutes = require('./routes/advancedBilling');
 
@@ -20,7 +20,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api', propertiesRoutes);
 app.use('/api', tenantsRoutes);
-app.use('/api/payments', paymentsRoutes);
+app.use('/api/payments', paymentsRouter);
 app.use('/api', aiChatRoutes);
 app.use('/api', advancedBillingRoutes);
 
