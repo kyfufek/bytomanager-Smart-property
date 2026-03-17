@@ -6,6 +6,14 @@ const router = express.Router();
 
 router.use(requireAuth);
 
+function isMissingColumnError(error, columnName) {
+  const text = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`.toLowerCase();
+  return (
+    (text.includes('column') || text.includes('schema cache') || text.includes('could not find')) &&
+    text.includes(columnName.toLowerCase())
+  );
+}
+
 router.get('/properties', async (req, res) => {
   const { data, error } = await supabase
     .from('properties')
@@ -45,11 +53,22 @@ router.post('/properties', async (req, res) => {
     owner_id: req.user.id,
   };
 
-  const { data, error } = await supabase
+  let insertPayload = { ...payload };
+  let { data, error } = await supabase
     .from('properties')
-    .insert(payload)
+    .insert(insertPayload)
     .select('*')
     .single();
+
+  if (error && isMissingColumnError(error, 'rent')) {
+    console.error('[properties] Missing "rent" column in Supabase table. Retrying insert without rent.', error);
+    delete insertPayload.rent;
+    ({ data, error } = await supabase
+      .from('properties')
+      .insert(insertPayload)
+      .select('*')
+      .single());
+  }
 
   if (error) {
     console.error(error);
@@ -93,12 +112,24 @@ async function updatePropertyHandler(req, res) {
       return res.status(400).json({ error: 'No fields provided for update.' });
     }
 
-    const { data, error } = await supabase
+    let updatePayload = { ...payload };
+    let { data, error } = await supabase
       .from('properties')
-      .update(payload)
+      .update(updatePayload)
       .eq('id', propertyId)
       .eq('owner_id', req.user.id)
       .select();
+
+    if (error && isMissingColumnError(error, 'rent')) {
+      console.error('[properties] Missing "rent" column in Supabase table. Retrying update without rent.', error);
+      delete updatePayload.rent;
+      ({ data, error } = await supabase
+        .from('properties')
+        .update(updatePayload)
+        .eq('id', propertyId)
+        .eq('owner_id', req.user.id)
+        .select());
+    }
 
     if (error) {
       console.error(error);
