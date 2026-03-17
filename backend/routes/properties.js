@@ -62,53 +62,62 @@ router.post('/properties', async (req, res) => {
 });
 
 router.put('/properties/:id', async (req, res) => {
-  const propertyId = req.params.id;
-  if (!propertyId) {
-    return res.status(400).json({ error: 'Missing property id.' });
-  }
+  try {
+    const propertyId = req.params.id;
+    if (!propertyId) {
+      return res.status(400).json({ error: 'Missing property id.' });
+    }
 
-  const { name, address, city, postal_code, units_count, rent, notes, payment_status } = req.body || {};
+    const incoming = { ...(req.body || {}) };
+    delete incoming.id;
 
-  const payload = {};
-  if (typeof name !== 'undefined') payload.name = name;
-  if (typeof address !== 'undefined') payload.address = address ?? null;
-  if (typeof city !== 'undefined') payload.city = city ?? null;
-  if (typeof postal_code !== 'undefined') payload.postal_code = postal_code ?? null;
-  if (typeof units_count !== 'undefined') {
-    payload.units_count = Number.isFinite(Number(units_count)) && Number(units_count) > 0 ? Number(units_count) : 1;
-  }
-  if (typeof rent !== 'undefined') {
-    payload.rent = Number.isFinite(Number(rent)) && Number(rent) >= 0 ? Number(rent) : 0;
-  }
-  if (typeof notes !== 'undefined') payload.notes = notes ?? null;
-  if (typeof payment_status !== 'undefined') payload.payment_status = payment_status;
+    const { name, address, city, postal_code, units_count, rent, notes, payment_status } = incoming;
 
-  if (Object.keys(payload).length === 0) {
-    return res.status(400).json({ error: 'No fields provided for update.' });
-  }
+    const payload = {};
+    if (typeof name !== 'undefined') payload.name = name;
+    if (typeof address !== 'undefined') payload.address = address ?? null;
+    if (typeof city !== 'undefined') payload.city = city ?? null;
+    if (typeof postal_code !== 'undefined') payload.postal_code = postal_code ?? null;
+    if (typeof units_count !== 'undefined') {
+      payload.units_count = Number.isFinite(Number(units_count)) && Number(units_count) > 0 ? Number(units_count) : 1;
+    }
+    if (typeof rent !== 'undefined') {
+      payload.rent = Number.isFinite(Number(rent)) && Number(rent) >= 0 ? Number(rent) : 0;
+    }
+    if (typeof notes !== 'undefined') payload.notes = notes ?? null;
+    if (typeof payment_status !== 'undefined') payload.payment_status = payment_status;
 
-  const { data, error } = await supabase
-    .from('properties')
-    .update(payload)
-    .eq('id', propertyId)
-    .eq('owner_id', req.user.id)
-    .select('id, owner_id, name, address, city, postal_code, units_count, rent, payment_status, notes, created_at, updated_at');
+    if (Object.keys(payload).length === 0) {
+      return res.status(400).json({ error: 'No fields provided for update.' });
+    }
 
-  if (error) {
+    const { data, error } = await supabase
+      .from('properties')
+      .update(payload)
+      .eq('id', propertyId)
+      .eq('owner_id', req.user.id)
+      .select();
+
+    if (error) {
+      console.error(error);
+      return res.status(500).json({ error: 'Failed to update property.' });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Property not found.' });
+    }
+
+    const updated = data[0];
+
+    return res.json({
+      ...updated,
+      rent: Number(updated?.rent ?? 0),
+      paymentStatus: updated?.paymentStatus ?? updated?.payment_status ?? 'ceka na platbu',
+    });
+  } catch (error) {
+    console.error(error);
     return res.status(500).json({ error: 'Failed to update property.' });
   }
-
-  if (!data || data.length === 0) {
-    return res.status(404).json({ error: 'Property not found.' });
-  }
-
-  const updated = data[0];
-
-  return res.json({
-    ...updated,
-    rent: Number(updated?.rent ?? 0),
-    paymentStatus: updated?.paymentStatus ?? updated?.payment_status ?? 'ceka na platbu',
-  });
 });
 
 router.delete('/properties/:id', async (req, res) => {
