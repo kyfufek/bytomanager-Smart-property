@@ -61,7 +61,7 @@ router.post('/properties', async (req, res) => {
   });
 });
 
-router.put('/properties/:id', async (req, res) => {
+async function updatePropertyHandler(req, res) {
   try {
     const propertyId = req.params.id;
     if (!propertyId) {
@@ -100,7 +100,7 @@ router.put('/properties/:id', async (req, res) => {
 
     if (error) {
       console.error(error);
-      return res.status(500).json({ error: 'Failed to update property.' });
+      return res.status(500).json({ error: 'Failed to update property.', details: error.message });
     }
 
     if (!data || data.length === 0) {
@@ -118,7 +118,10 @@ router.put('/properties/:id', async (req, res) => {
     console.error(error);
     return res.status(500).json({ error: 'Failed to update property.' });
   }
-});
+}
+
+router.put('/properties/:id', updatePropertyHandler);
+router.patch('/properties/:id', updatePropertyHandler);
 
 router.delete('/properties/:id', async (req, res) => {
   const propertyId = req.params.id;

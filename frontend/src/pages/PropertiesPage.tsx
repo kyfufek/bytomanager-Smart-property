@@ -98,7 +98,14 @@ export default function PropertiesPage() {
 
       const response = await apiFetch("/api/properties", { signal });
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        let backendMessage = "";
+        try {
+          const errorBody = await response.json();
+          backendMessage = errorBody?.error || errorBody?.details || "";
+        } catch {
+          backendMessage = "";
+        }
+        throw new Error(backendMessage || `HTTP ${response.status}`);
       }
 
       const data = (await response.json()) as PropertyApiItem[];
@@ -153,7 +160,14 @@ export default function PropertiesPage() {
       );
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        let backendMessage = "";
+        try {
+          const errorBody = await response.json();
+          backendMessage = errorBody?.error || errorBody?.details || "";
+        } catch {
+          backendMessage = "";
+        }
+        throw new Error(backendMessage || `HTTP ${response.status}`);
       }
 
       const saved = normalizeProperty((await response.json()) as PropertyApiItem);
@@ -164,8 +178,13 @@ export default function PropertiesPage() {
       setOpen(false);
       setEditingId(null);
       resetForm();
-    } catch {
-      setFormError(editingId ? "Nepodarilo se upravit nemovitost." : "Nepodarilo se ulozit nemovitost.");
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "";
+      if (editingId) {
+        setFormError(detail ? `Nepodarilo se upravit nemovitost: ${detail}` : "Nepodarilo se upravit nemovitost.");
+      } else {
+        setFormError(detail ? `Nepodarilo se ulozit nemovitost: ${detail}` : "Nepodarilo se ulozit nemovitost.");
+      }
     } finally {
       setIsSubmitting(false);
     }
