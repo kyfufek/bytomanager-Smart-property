@@ -45,6 +45,15 @@ type PropertyOption = {
   name: string;
 };
 
+type PaymentApiItem = {
+  id: string;
+  tenant_id: string;
+  amount: number;
+  payment_date: string;
+  payment_type: string;
+  note?: string | null;
+};
+
 const mockMessages = [
   { id: 1, from: "tenant", text: "Dobry den, chtel bych nahlasit rozbitou pracku v byte." },
   { id: 2, from: "ai", text: "Automaticky navrh odpovedi: Dekujeme za hlaseni, technik se ozve do 48 hodin." },
@@ -223,6 +232,15 @@ export default function TenantsPage() {
   const [createError, setCreateError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [payments, setPayments] = useState<PaymentApiItem[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [paymentsError, setPaymentsError] = useState("");
+  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [paymentType, setPaymentType] = useState("Nájem");
+  const [paymentNote, setPaymentNote] = useState("");
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
 
   async function loadTenants(signal?: AbortSignal) {
     try {
@@ -273,6 +291,41 @@ export default function TenantsPage() {
     loadProperties(controller.signal);
     return () => controller.abort();
   }, []);
+
+  async function loadPayments(tenantId: string, signal?: AbortSignal) {
+    try {
+      setPaymentsLoading(true);
+      setPaymentsError("");
+
+      const response = await apiFetch(`/api/payments/tenant/${tenantId}`, { signal });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = (await response.json()) as PaymentApiItem[];
+      setPayments(data);
+    } catch (err) {
+      if (signal?.aborted) return;
+      setPayments([]);
+      setPaymentsError("Nepodarilo se nacist historii plateb.");
+    } finally {
+      if (!signal?.aborted) {
+        setPaymentsLoading(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedTenant?.id) {
+      setPayments([]);
+      setPaymentsError("");
+      return;
+    }
+
+    const controller = new AbortController();
+    loadPayments(selectedTenant.id, controller.signal);
+    return () => controller.abort();
+  }, [selectedTenant?.id]);
 
   async function handleCreateTenant(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -329,6 +382,61 @@ export default function TenantsPage() {
     } finally {
       setDeletingId(null);
     }
+  }
+
+  async function handleCreatePayment(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedTenant || isSavingPayment) return;
+
+    const parsedAmount = Number(paymentAmount.replace(",", "."));
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setPaymentsError("Castka musi byt cislo vetsi nez 0.");
+      return;
+    }
+
+    if (!paymentDate) {
+      setPaymentsError("Vyber datum platby.");
+      return;
+    }
+
+    try {
+      setIsSavingPayment(true);
+      setPaymentsError("");
+
+      const response = await apiFetch("/api/payments", {
+        method: "POST",
+        body: JSON.stringify({
+          tenant_id: selectedTenant.id,
+          amount: parsedAmount,
+          payment_date: paymentDate,
+          payment_type: paymentType,
+          note: paymentNote.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const created = (await response.json()) as PaymentApiItem;
+      setPayments((prev) => [created, ...prev]);
+      setPaymentAmount("");
+      setPaymentDate(new Date().toISOString().slice(0, 10));
+      setPaymentType("Nájem");
+      setPaymentNote("");
+      setIsPaymentOpen(false);
+    } catch (err) {
+      setPaymentsError("Nepodarilo se ulozit platbu.");
+    } finally {
+      setIsSavingPayment(false);
+    }
+  }
+
+  function formatPaymentDate(value: string) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString("cs-CZ");
   }
 
   const headerName = useMemo(() => selectedTenant?.name ?? "-", [selectedTenant]);
@@ -466,6 +574,106 @@ export default function TenantsPage() {
           </Card>
 
           <EscalationAutoPilot />
+
+          <Card className="card-shadow">
+            <CardHeader className="pb-3 border-b">
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="text-base">Historie plateb</CardTitle>
+                <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="cta" size="sm" disabled={!selectedTenant}>
+                      Pridat platbu
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Pridat platbu</DialogTitle>
+                    </DialogHeader>
+                    <form className="space-y-4" onSubmit={handleCreatePayment}>
+                      <div className="space-y-2">
+                        <Label htmlFor="payment-amount">Castka</Label>
+                        <Input
+                          id="payment-amount"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={paymentAmount}
+                          onChange={(e) => setPaymentAmount(e.target.value)}
+                          placeholder="15000"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="payment-date">Datum platby</Label>
+                        <Input
+                          id="payment-date"
+                          type="date"
+                          value={paymentDate}
+                          onChange={(e) => setPaymentDate(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="payment-type">Typ platby</Label>
+                        <select
+                          id="payment-type"
+                          className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                          value={paymentType}
+                          onChange={(e) => setPaymentType(e.target.value)}
+                        >
+                          <option value="Nájem">Nájem</option>
+                          <option value="Záloha na služby">Záloha na služby</option>
+                          <option value="Kauce">Kauce</option>
+                          <option value="Jiné">Jiné</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="payment-note">Poznamka</Label>
+                        <Input
+                          id="payment-note"
+                          value={paymentNote}
+                          onChange={(e) => setPaymentNote(e.target.value)}
+                          placeholder="Volitelna poznamka"
+                        />
+                      </div>
+                      <Button type="submit" variant="cta" className="w-full" disabled={isSavingPayment}>
+                        {isSavingPayment ? "Ukladam..." : "Ulozit platbu"}
+                      </Button>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              {paymentsLoading && <p className="text-sm text-muted-foreground">Nacitam platby...</p>}
+              {!paymentsLoading && paymentsError && <p className="text-sm text-destructive">{paymentsError}</p>}
+              {!paymentsLoading && !paymentsError && payments.length === 0 && (
+                <p className="text-sm text-muted-foreground">Zatim nejsou evidovane zadne platby.</p>
+              )}
+              {!paymentsLoading && !paymentsError && payments.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left border-b">
+                        <th className="py-2 pr-4 font-medium">Castka</th>
+                        <th className="py-2 pr-4 font-medium">Datum</th>
+                        <th className="py-2 pr-4 font-medium">Typ</th>
+                        <th className="py-2 pr-4 font-medium">Poznamka</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payments.map((payment) => (
+                        <tr key={payment.id} className="border-b last:border-b-0">
+                          <td className="py-2 pr-4">{Number(payment.amount ?? 0).toLocaleString("cs-CZ")} Kc</td>
+                          <td className="py-2 pr-4">{formatPaymentDate(payment.payment_date)}</td>
+                          <td className="py-2 pr-4">{payment.payment_type || "-"}</td>
+                          <td className="py-2 pr-4">{payment.note || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           <Card className="card-shadow flex flex-col flex-1 min-h-[300px]">
             <CardHeader className="pb-3 border-b">
