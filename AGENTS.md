@@ -58,6 +58,7 @@ npm run dev
 - Framework: Express.js
 - Databaze: aktualne mock data, planovany prechod na Supabase (PostgreSQL)
 - Knihovny: `cors`, `dotenv`, planovane `@supabase/supabase-js`
+- LLM architektura: provider-agnosticka vrstva v `backend/services/llm/` (vychozi OpenAI adapter)
 
 ## Code Quality & Security Rules
 Dodrzuj bezpodminecne:
@@ -98,6 +99,7 @@ backend/
 1. Definuj logiku v `backend/routes/`.
 2. Zaregistruj router v `backend/server.js`.
 3. Pri DB operacich pouzij `try/catch` a vrat srozumitelny HTTP status + chybu.
+4. Pokud endpoint pouziva LLM, volej pouze `backend/services/llm` (nikdy ne provider API primo).
 
 ## Database (Supabase) Guidance
 (Plne relevantni po dokonceni migrace na Supabase)
