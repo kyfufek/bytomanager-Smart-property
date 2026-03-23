@@ -1,11 +1,8 @@
-﻿import { useEffect, useState } from "react";
-import { Plus, Building, MapPin, Pencil } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { useEffect, useState } from "react";
+import { Building, MapPin, Pencil, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { apiFetch } from "@/lib/api";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +10,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { DataState } from "@/components/product/DataState";
+import { PageHeader } from "@/components/product/PageHeader";
+import { toast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/api";
 
 type PropertyApiItem = {
   id: number | string;
@@ -105,14 +109,7 @@ export default function PropertiesPage() {
 
       const response = await apiFetch("/api/properties", { signal });
       if (!response.ok) {
-        let backendMessage = "";
-        try {
-          const errorBody = await response.json();
-          backendMessage = errorBody?.error || errorBody?.details || "";
-        } catch {
-          backendMessage = "";
-        }
-        throw new Error(backendMessage || `HTTP ${response.status}`);
+        throw new Error(`HTTP ${response.status}`);
       }
 
       const data = (await response.json()) as PropertyApiItem[];
@@ -121,7 +118,7 @@ export default function PropertiesPage() {
       if (signal?.aborted) {
         return;
       }
-      setError("Nepodarilo se nacist nemovitosti z backendu.");
+      setError("Nemovitosti se nepodarilo nacist. Zkuste obnovit stranku nebo opakovat akci.");
     } finally {
       if (!signal?.aborted) {
         setLoading(false);
@@ -141,7 +138,7 @@ export default function PropertiesPage() {
     setFormError("");
 
     if (!name.trim()) {
-      setFormError("Nazev je povinny.");
+      setFormError("Nazev nemovitosti je povinny.");
       return;
     }
 
@@ -167,14 +164,7 @@ export default function PropertiesPage() {
       );
 
       if (!response.ok) {
-        let backendMessage = "";
-        try {
-          const errorBody = await response.json();
-          backendMessage = errorBody?.error || errorBody?.details || "";
-        } catch {
-          backendMessage = "";
-        }
-        throw new Error(backendMessage || `HTTP ${response.status}`);
+        throw new Error(`HTTP ${response.status}`);
       }
 
       const saved = normalizeProperty((await response.json()) as PropertyApiItem);
@@ -182,16 +172,24 @@ export default function PropertiesPage() {
         isEditing ? prev.map((item) => (item.id === saved.id ? saved : item)) : [saved, ...prev],
       );
 
+      toast({
+        title: isEditing ? "Nemovitost upravena" : "Nemovitost vytvorena",
+        description: isEditing
+          ? "Zmeny byly uspesne ulozeny."
+          : "Nova nemovitost byla pridana do seznamu.",
+      });
+
       setOpen(false);
       setEditingId(null);
       resetForm();
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : "";
-      if (editingId) {
-        setFormError(detail ? `Nepodarilo se upravit nemovitost: ${detail}` : "Nepodarilo se upravit nemovitost.");
-      } else {
-        setFormError(detail ? `Nepodarilo se ulozit nemovitost: ${detail}` : "Nepodarilo se ulozit nemovitost.");
-      }
+    } catch {
+      const message = editingId ? "Nepodarilo se upravit nemovitost." : "Nepodarilo se ulozit nemovitost.";
+      setFormError(message);
+      toast({
+        title: "Akce se nepodarila",
+        description: message,
+        variant: "destructive",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -209,14 +207,22 @@ export default function PropertiesPage() {
         method: "DELETE",
       });
 
-      // If the item was already deleted by a duplicate request, treat as success.
       if (!response.ok && response.status !== 204 && response.status !== 404) {
         throw new Error(`HTTP ${response.status}`);
       }
 
       setProperties((prev) => prev.filter((item) => item.id !== propertyId));
+      toast({
+        title: "Nemovitost smazana",
+        description: "Nemovitost byla odebrana ze seznamu.",
+      });
     } catch {
-      setError("Nepodarilo se smazat nemovitost.");
+      setError("Mazani se nepodarilo. Zkuste to prosim znovu.");
+      toast({
+        title: "Nepodarilo se smazat nemovitost",
+        description: "Akce nebyla dokoncena.",
+        variant: "destructive",
+      });
     } finally {
       setDeletingId(null);
     }
@@ -224,151 +230,178 @@ export default function PropertiesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Moje nemovitosti</h1>
-          <p className="text-muted-foreground">Sprava bytovych jednotek z backend API</p>
-        </div>
-        <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-          <DialogTrigger asChild>
-            <Button variant="cta" onClick={openCreateDialog}>
-              <Plus className="mr-2 h-4 w-4" /> Pridat nemovitost
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editingId ? "Upravit nemovitost" : "Pridat novou nemovitost"}</DialogTitle>
-            </DialogHeader>
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <div className="space-y-2">
-                <Label>Nazev</Label>
-                <Input
-                  placeholder="Byt 2+1 Praha"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Adresa</Label>
-                <Input
-                  placeholder="Ulice a cislo"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Mesto</Label>
-                <Input
-                  placeholder="Praha"
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>PSC</Label>
-                <Input
-                  placeholder="12000"
-                  value={postalCode}
-                  onChange={(e) => setPostalCode(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Pocet jednotek</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={unitsCount}
-                  onChange={(e) => setUnitsCount(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Najemne (Kc)</Label>
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  pattern="[0-9., ]*"
-                  value={rent}
-                  onChange={(e) => setRent(e.target.value)}
-                  placeholder="18000"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Poznamka</Label>
-                <Input
-                  placeholder="Nepovinny komentar"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              </div>
-              {formError && <p className="text-xs text-destructive">{formError}</p>}
-              <Button type="submit" variant="cta" className="w-full" disabled={isSubmitting}>
-                {isSubmitting ? "Ukladam..." : editingId ? "Ulozit zmeny" : "Ulozit nemovitost"}
+      <PageHeader
+        title="Moje nemovitosti"
+        description="Sprava bytovych jednotek a jejich zakladnich informaci."
+        actions={
+          <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+            <DialogTrigger asChild>
+              <Button variant="cta" onClick={openCreateDialog}>
+                <Plus className="mr-2 h-4 w-4" />
+                Pridat nemovitost
               </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{editingId ? "Upravit nemovitost" : "Pridat novou nemovitost"}</DialogTitle>
+              </DialogHeader>
+              <form className="space-y-4" onSubmit={handleSubmit}>
+                <div className="space-y-2">
+                  <Label>Nazev</Label>
+                  <Input
+                    placeholder="Byt 2+1 Praha"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Adresa</Label>
+                  <Input
+                    placeholder="Ulice a cislo"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Mesto</Label>
+                  <Input placeholder="Praha" value={city} onChange={(e) => setCity(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>PSC</Label>
+                  <Input
+                    placeholder="12000"
+                    value={postalCode}
+                    onChange={(e) => setPostalCode(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Pocet jednotek</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={unitsCount}
+                    onChange={(e) => setUnitsCount(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Najemne (Kc)</Label>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    pattern="[0-9., ]*"
+                    value={rent}
+                    onChange={(e) => setRent(e.target.value)}
+                    placeholder="18000"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Poznamka</Label>
+                  <Input
+                    placeholder="Nepovinny komentar"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                </div>
+                {formError ? <p className="text-xs text-destructive">{formError}</p> : null}
+                <Button type="submit" variant="cta" className="w-full" disabled={isSubmitting}>
+                  {isSubmitting ? "Ukladam..." : editingId ? "Ulozit zmeny" : "Ulozit nemovitost"}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        }
+      />
 
-      {loading && <p className="text-sm text-muted-foreground">Nacitam nemovitosti...</p>}
-      {!loading && error && <p className="text-sm text-destructive">{error}</p>}
+      {error && !loading ? (
+        <DataState
+          variant="error"
+          title="Nemovitosti se nepodarilo nacist"
+          description={error}
+          actionLabel="Zkusit znovu"
+          onAction={() => loadProperties()}
+        />
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {!loading &&
-          !error &&
-          properties.map((property) => (
-            <Card
-              key={property.id}
-              className="card-shadow hover:card-shadow-hover transition-shadow cursor-pointer group"
-            >
-              <div className="h-36 bg-accent flex items-center justify-center rounded-t-lg">
-                <Building className="h-12 w-12 text-muted-foreground/30 group-hover:text-primary/40 transition-colors" />
-              </div>
-              <CardContent className="p-4 space-y-3">
-                <div className="flex items-start justify-between">
-                  <h3 className="font-semibold">{property.name}</h3>
-                  <Badge
-                    variant="secondary"
-                    className={
-                      property.paymentStatus === "uhrazeno"
-                        ? "bg-success/10 text-success border-0"
-                        : "bg-destructive/10 text-destructive border-0"
-                    }
-                  >
-                    {property.paymentStatus === "uhrazeno" ? "Zaplaceno" : "Dluh"}
-                  </Badge>
+        {loading
+          ? Array.from({ length: 4 }).map((_, index) => (
+              <Card className="card-shadow" key={`property-skeleton-${index}`}>
+                <Skeleton className="h-36 w-full rounded-t-lg rounded-b-none" />
+                <CardContent className="p-4 space-y-3">
+                  <Skeleton className="h-5 w-2/3" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-1/2" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Skeleton className="h-9 w-full" />
+                    <Skeleton className="h-9 w-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          : properties.map((property) => (
+              <Card
+                key={property.id}
+                className="card-shadow hover:card-shadow-hover transition-shadow cursor-pointer group"
+              >
+                <div className="h-36 bg-accent flex items-center justify-center rounded-t-lg">
+                  <Building className="h-12 w-12 text-muted-foreground/30 group-hover:text-primary/40 transition-colors" />
                 </div>
-                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <MapPin className="h-3.5 w-3.5" />
-                  {property.address || property.city
-                    ? [property.address, property.city].filter(Boolean).join(", ")
-                    : "Adresa neni dostupna"}
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Najemne</span>
-                  <span className="font-semibold">{Number(property.rent ?? 0).toLocaleString("cs-CZ")} Kc</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button type="button" variant="outline" onClick={() => openEditDialog(property)}>
-                    <Pencil className="mr-2 h-4 w-4" />
-                    Upravit
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={deletingId === property.id}
-                    onClick={() => handleDelete(property.id)}
-                  >
-                    {deletingId === property.id ? "Mazani..." : "Smazat"}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="font-semibold truncate">{property.name}</h3>
+                    <Badge
+                      variant="secondary"
+                      className={
+                        property.paymentStatus === "uhrazeno"
+                          ? "bg-success/10 text-success border-0"
+                          : "bg-destructive/10 text-destructive border-0"
+                      }
+                    >
+                      {property.paymentStatus === "uhrazeno" ? "Zaplaceno" : "Dluh"}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <MapPin className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">
+                      {property.address || property.city
+                        ? [property.address, property.city].filter(Boolean).join(", ")
+                        : "Adresa neni dostupna"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Najemne</span>
+                    <span className="font-semibold">
+                      {Number(property.rent ?? 0).toLocaleString("cs-CZ")} Kc
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => openEditDialog(property)}>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Upravit
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={deletingId === property.id}
+                      onClick={() => handleDelete(property.id)}
+                    >
+                      {deletingId === property.id ? "Mazani..." : "Smazat"}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
       </div>
 
-      {!loading && !error && properties.length === 0 && (
-        <p className="text-sm text-muted-foreground">Backend nevratil zadne nemovitosti.</p>
-      )}
+      {!loading && !error && properties.length === 0 ? (
+        <DataState
+          title="Zatim nemate zadne nemovitosti"
+          description="Prvni nemovitost pridate behem chvilky, potom se tu zobrazi detailni prehled."
+          actionLabel="Pridat nemovitost"
+          onAction={openCreateDialog}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,11 +1,6 @@
-import { createContext, useContext, useMemo, useState } from "react";
-import type { AuthUser } from "@/services/authService";
-import {
-  getSession,
-  login as loginService,
-  logout as logoutService,
-  register as registerService,
-} from "@/services/authService";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import type { Session, User } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase";
 
 type AuthActionResult = {
   success: boolean;
@@ -13,50 +8,104 @@ type AuthActionResult = {
 };
 
 type AuthContextValue = {
-  user: AuthUser | null;
+  user: User | null;
+  session: Session | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => AuthActionResult;
-  register: (name: string, email: string, password: string) => AuthActionResult;
-  logout: () => void;
+  isLoading: boolean;
+  setLocalProfileName: (fullName: string) => void;
+  login: (email: string, password: string) => Promise<AuthActionResult>;
+  register: (name: string, email: string, password: string) => Promise<AuthActionResult>;
+  logout: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() => getSession());
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!isMounted) return;
+        setSession(data.session ?? null);
+        setUser(data.session?.user ?? null);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession ?? null);
+      setUser(nextSession?.user ?? null);
+      setIsLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
+      session,
       user,
       isAuthenticated: Boolean(user),
-      login: (email, password) => {
-        const sessionUser = loginService(email, password);
-        if (!sessionUser) {
+      isLoading,
+      setLocalProfileName: (fullName) => {
+        setUser((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            user_metadata: {
+              ...prev.user_metadata,
+              full_name: fullName,
+            },
+          } as User;
+        });
+      },
+      login: async (email, password) => {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
           return {
             success: false,
-            error: "Nespravny e-mail nebo heslo.",
+            error: error.message,
           };
         }
-        setUser(sessionUser);
         return { success: true };
       },
-      register: (name, email, password) => {
-        const sessionUser = registerService(name, email, password);
-        if (!sessionUser) {
+      register: async (name, email, password) => {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: name,
+            },
+          },
+        });
+        if (error) {
           return {
             success: false,
-            error: "Uzivatel s timto e-mailem uz existuje.",
+            error: error.message,
           };
         }
-        setUser(sessionUser);
         return { success: true };
       },
-      logout: () => {
-        logoutService();
-        setUser(null);
+      logout: async () => {
+        await supabase.auth.signOut();
       },
     }),
-    [user]
+    [session, user, isLoading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

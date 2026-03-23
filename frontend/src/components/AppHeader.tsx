@@ -9,17 +9,21 @@ import { useAuth } from "@/context/AuthContext";
 export function AppHeader() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const displayName =
+    (user?.user_metadata?.full_name as string | undefined) ??
+    user?.email ??
+    "Uzivatel";
 
   const initials =
-    user?.name
+    displayName
       ?.split(" ")
       .filter(Boolean)
       .slice(0, 2)
       .map((part) => part[0]?.toUpperCase() ?? "")
       .join("") ?? "U";
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     navigate("/auth", { replace: true });
   }
 
@@ -44,7 +48,7 @@ export function AppHeader() {
               {initials}
             </AvatarFallback>
           </Avatar>
-          <span className="hidden text-sm font-medium md:block">{user?.name ?? "Uzivatel"}</span>
+          <span className="hidden text-sm font-medium md:block">{displayName}</span>
         </div>
 
         <Button type="button" variant="ghost" size="sm" onClick={handleLogout}>

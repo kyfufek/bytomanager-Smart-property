@@ -14,7 +14,7 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function AuthPage() {
   const navigate = useNavigate();
-  const { isAuthenticated, login, register } = useAuth();
+  const { isAuthenticated, isLoading, login, register } = useAuth();
   const [mode, setMode] = useState<Mode>("login");
   const [successMessage, setSuccessMessage] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -33,6 +33,14 @@ export default function AuthPage() {
       return () => window.clearTimeout(timer);
     }
   }, [successMessage]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
+        Nacitam session...
+      </div>
+    );
+  }
 
   if (isAuthenticated) {
     return <Navigate to="/properties" replace />;
@@ -84,11 +92,11 @@ export default function AuthPage() {
     return Object.keys(nextErrors).length === 0;
   }
 
-  function handleLoginSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleLoginSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!validateLogin()) return;
 
-    const result = login(loginEmail, loginPassword);
+    const result = await login(loginEmail, loginPassword);
     if (!result.success) {
       setErrors({ form: result.error ?? "Prihlaseni se nezdarilo." });
       return;
@@ -98,11 +106,11 @@ export default function AuthPage() {
     navigate("/properties", { replace: true });
   }
 
-  function handleRegisterSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleRegisterSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!validateRegister()) return;
 
-    const result = register(registerName, registerEmail, registerPassword);
+    const result = await register(registerName, registerEmail, registerPassword);
     if (!result.success) {
       setErrors({ form: result.error ?? "Registrace se nezdarila." });
       return;
@@ -273,7 +281,7 @@ export default function AuthPage() {
 
           <div className="mt-5 flex justify-center">
             <Badge variant="secondary" className="bg-primary/10 text-primary border-0">
-              Demo auth ulozeny v localStorage
+              Supabase Auth
             </Badge>
           </div>
         </CardContent>

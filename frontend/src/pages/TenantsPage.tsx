@@ -1,15 +1,9 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { Send, Bot, User, Settings, Shield, Mail, FileWarning, FileX } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Bot, FileWarning, FileX, Mail, Send, Settings, Shield, User } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Progress } from "@/components/ui/progress";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { apiFetch } from "@/lib/api";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -17,6 +11,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { PageHeader } from "@/components/product/PageHeader";
+import { DataState } from "@/components/product/DataState";
+import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/api";
 
 type TenantApiItem = {
   id: string;
@@ -62,7 +66,11 @@ type PaymentApiItem = {
 
 const mockMessages = [
   { id: 1, from: "tenant", text: "Dobry den, chtel bych nahlasit rozbitou pracku v byte." },
-  { id: 2, from: "ai", text: "Automaticky navrh odpovedi: Dekujeme za hlaseni, technik se ozve do 48 hodin." },
+  {
+    id: 2,
+    from: "ai",
+    text: "Automaticky navrh odpovedi: Dekujeme za hlaseni, technik se ozve do 48 hodin.",
+  },
 ];
 
 function getInitials(name: string) {
@@ -100,11 +108,11 @@ function DepositHealthBar({ deposit, debt }: { deposit: number; debt: number }) 
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
         <span className="text-muted-foreground">Kauce: {deposit.toLocaleString("cs-CZ")} Kc</span>
-        {debt > 0 && (
+        {debt > 0 ? (
           <span className={isWarning ? "text-destructive font-medium" : "text-warning font-medium"}>
             Dluh: {debt.toLocaleString("cs-CZ")} Kc
           </span>
-        )}
+        ) : null}
       </div>
       <Progress
         value={percentage}
@@ -129,6 +137,13 @@ function ContractSettingsModal({ tenant }: { tenant: TenantViewModel }) {
   const [dueDay, setDueDay] = useState(String(tenant.dueDay));
   const [toleranceDays, setToleranceDays] = useState(String(tenant.toleranceDays));
   const [depositAmount, setDepositAmount] = useState(String(tenant.deposit));
+
+  function handleSave() {
+    toast({
+      title: "Parametry ulozeny",
+      description: `Splatnost ${dueDay}. den, tolerance ${toleranceDays} dni, kauce ${depositAmount} Kc.`,
+    });
+  }
 
   return (
     <Dialog>
@@ -175,7 +190,7 @@ function ContractSettingsModal({ tenant }: { tenant: TenantViewModel }) {
               onChange={(e) => setDepositAmount(e.target.value)}
             />
           </div>
-          <Button variant="cta" className="w-full">
+          <Button variant="cta" className="w-full" onClick={handleSave}>
             Ulozit parametry
           </Button>
         </div>
@@ -188,6 +203,13 @@ function EscalationAutoPilot() {
   const [step1, setStep1] = useState(true);
   const [step2, setStep2] = useState(true);
   const [step3, setStep3] = useState(false);
+
+  function handleToggle(stepLabel: string, checked: boolean) {
+    toast({
+      title: "Nastaveni auto-pilota upraveno",
+      description: `${stepLabel}: ${checked ? "zapnuto" : "vypnuto"}.`,
+    });
+  }
 
   return (
     <Card className="card-shadow">
@@ -206,7 +228,13 @@ function EscalationAutoPilot() {
             <p className="text-sm font-medium">Krok 1: Auto-upominka (SMS)</p>
             <p className="text-xs text-muted-foreground">Odeslani upominky po X dnech prodleni</p>
           </div>
-          <Switch checked={step1} onCheckedChange={setStep1} />
+          <Switch
+            checked={step1}
+            onCheckedChange={(checked) => {
+              setStep1(checked);
+              handleToggle("Auto-upominka", checked);
+            }}
+          />
         </div>
 
         <div className="flex items-start gap-3 rounded-lg border p-3">
@@ -217,7 +245,13 @@ function EscalationAutoPilot() {
             <p className="text-sm font-medium">Krok 2: Oficialni vystraha</p>
             <p className="text-xs text-muted-foreground">Predzalobni vyzva po Y dnech</p>
           </div>
-          <Switch checked={step2} onCheckedChange={setStep2} />
+          <Switch
+            checked={step2}
+            onCheckedChange={(checked) => {
+              setStep2(checked);
+              handleToggle("Oficialni vystraha", checked);
+            }}
+          />
         </div>
 
         <div className="flex items-start gap-3 rounded-lg border p-3">
@@ -228,7 +262,13 @@ function EscalationAutoPilot() {
             <p className="text-sm font-medium">Krok 3: Auto-vypoved</p>
             <p className="text-xs text-muted-foreground">Generovani vypovedi pri propadnuti kauce</p>
           </div>
-          <Switch checked={step3} onCheckedChange={setStep3} />
+          <Switch
+            checked={step3}
+            onCheckedChange={(checked) => {
+              setStep3(checked);
+              handleToggle("Auto-vypoved", checked);
+            }}
+          />
         </div>
       </CardContent>
     </Card>
@@ -254,7 +294,7 @@ export default function TenantsPage() {
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [paymentType, setPaymentType] = useState("Nájem");
+  const [paymentType, setPaymentType] = useState("Najem");
   const [paymentNote, setPaymentNote] = useState("");
   const [isSavingPayment, setIsSavingPayment] = useState(false);
 
@@ -263,10 +303,7 @@ export default function TenantsPage() {
       setLoading(true);
       setError("");
 
-      const response = await apiFetch("/api/tenants", {
-        signal,
-      });
-
+      const response = await apiFetch("/api/tenants", { signal });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -279,11 +316,9 @@ export default function TenantsPage() {
         if (!prev) return mapped[0];
         return mapped.find((item) => item.id === prev.id) ?? mapped[0];
       });
-    } catch (err) {
-      if (signal?.aborted) {
-        return;
-      }
-      setError("Nepodarilo se nacist najemniky z backendu.");
+    } catch {
+      if (signal?.aborted) return;
+      setError("Najemniky se nepodarilo nacist. Zkuste obnovit stranku.");
     } finally {
       if (!signal?.aborted) {
         setLoading(false);
@@ -292,12 +327,16 @@ export default function TenantsPage() {
   }
 
   async function loadProperties(signal?: AbortSignal) {
-    const response = await apiFetch("/api/properties", { signal });
-    if (!response.ok) return;
-    const data = (await response.json()) as PropertyOption[];
-    setProperties(data);
-    if (data.length && !createPropertyId) {
-      setCreatePropertyId(data[0].id);
+    try {
+      const response = await apiFetch("/api/properties", { signal });
+      if (!response.ok) return;
+      const data = (await response.json()) as PropertyOption[];
+      setProperties(data);
+      if (data.length && !createPropertyId) {
+        setCreatePropertyId(data[0].id);
+      }
+    } catch {
+      // Optional data; ignore hard failure here.
     }
   }
 
@@ -320,10 +359,10 @@ export default function TenantsPage() {
 
       const data = (await response.json()) as PaymentApiItem[];
       setPayments(data);
-    } catch (err) {
+    } catch {
       if (signal?.aborted) return;
       setPayments([]);
-      setPaymentsError("Nepodarilo se nacist historii plateb.");
+      setPaymentsError("Historii plateb se nepodarilo nacist.");
     } finally {
       if (!signal?.aborted) {
         setPaymentsLoading(false);
@@ -349,7 +388,7 @@ export default function TenantsPage() {
     setCreateError("");
 
     if (!createName.trim() || !createPropertyId) {
-      setCreateError("Vypln jmeno a vyber nemovitost.");
+      setCreateError("Vyplnte jmeno a vyberte nemovitost.");
       return;
     }
 
@@ -370,8 +409,17 @@ export default function TenantsPage() {
       setCreateName("");
       setIsCreateOpen(false);
       await loadTenants();
-    } catch (err) {
+      toast({
+        title: "Najemnik vytvoren",
+        description: "Novy najemnik byl uspesne pridan.",
+      });
+    } catch {
       setCreateError("Nepodarilo se vytvorit najemnika.");
+      toast({
+        title: "Akce se nepodarila",
+        description: "Najemnika se nepodarilo vytvorit.",
+        variant: "destructive",
+      });
     } finally {
       setIsCreating(false);
     }
@@ -393,8 +441,17 @@ export default function TenantsPage() {
       }
 
       await loadTenants();
-    } catch (err) {
-      setError("Nepodarilo se smazat najemnika.");
+      toast({
+        title: "Najemnik smazan",
+        description: `${selectedTenant.name} byl odebran ze seznamu.`,
+      });
+    } catch {
+      setError("Najemnika se nepodarilo smazat.");
+      toast({
+        title: "Mazani se nepodarilo",
+        description: "Zkuste akci opakovat.",
+        variant: "destructive",
+      });
     } finally {
       setDeletingId(null);
     }
@@ -411,7 +468,7 @@ export default function TenantsPage() {
     }
 
     if (!paymentDate) {
-      setPaymentsError("Vyber datum platby.");
+      setPaymentsError("Vyberte datum platby.");
       return;
     }
 
@@ -438,11 +495,20 @@ export default function TenantsPage() {
       setPayments((prev) => [created, ...prev]);
       setPaymentAmount("");
       setPaymentDate(new Date().toISOString().slice(0, 10));
-      setPaymentType("Nájem");
+      setPaymentType("Najem");
       setPaymentNote("");
       setIsPaymentOpen(false);
-    } catch (err) {
-      setPaymentsError("Nepodarilo se ulozit platbu.");
+      toast({
+        title: "Platba ulozena",
+        description: "Platba byla uspesne zapsana do historie.",
+      });
+    } catch {
+      setPaymentsError("Platbu se nepodarilo ulozit.");
+      toast({
+        title: "Ulozeni platby selhalo",
+        description: "Zkuste akci opakovat.",
+        variant: "destructive",
+      });
     } finally {
       setIsSavingPayment(false);
     }
@@ -459,55 +525,63 @@ export default function TenantsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Najemnici a AI komunikace</h1>
-        <p className="text-muted-foreground">Sprava najemniku, kauce a eskalacni auto-pilot</p>
-      </div>
+      <PageHeader
+        title="Najemnici a AI komunikace"
+        description="Sprava najemniku, plateb, kauce a eskalacniho auto-pilota."
+        actions={
+          <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+            <DialogTrigger asChild>
+              <Button variant="cta">Pridat najemnika</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Pridat najemnika</DialogTitle>
+              </DialogHeader>
+              <form className="space-y-4" onSubmit={handleCreateTenant}>
+                <div className="space-y-2">
+                  <Label htmlFor="tenant-name">Cele jmeno</Label>
+                  <Input
+                    id="tenant-name"
+                    value={createName}
+                    onChange={(e) => setCreateName(e.target.value)}
+                    placeholder="Jan Novak"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="tenant-property">Nemovitost</Label>
+                  <select
+                    id="tenant-property"
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    value={createPropertyId}
+                    onChange={(e) => setCreatePropertyId(e.target.value)}
+                  >
+                    <option value="">Vyber nemovitost</option>
+                    {properties.map((property) => (
+                      <option key={property.id} value={property.id}>
+                        {property.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {createError ? <p className="text-xs text-destructive">{createError}</p> : null}
+                <Button type="submit" variant="cta" className="w-full" disabled={isCreating}>
+                  {isCreating ? "Ukladam..." : "Ulozit najemnika"}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        }
+      />
 
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogTrigger asChild>
-          <Button variant="cta">Pridat najemnika</Button>
-        </DialogTrigger>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Pridat najemnika</DialogTitle>
-          </DialogHeader>
-          <form className="space-y-4" onSubmit={handleCreateTenant}>
-            <div className="space-y-2">
-              <Label htmlFor="tenant-name">Cele jmeno</Label>
-              <Input
-                id="tenant-name"
-                value={createName}
-                onChange={(e) => setCreateName(e.target.value)}
-                placeholder="Jan Novak"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tenant-property">Nemovitost</Label>
-              <select
-                id="tenant-property"
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                value={createPropertyId}
-                onChange={(e) => setCreatePropertyId(e.target.value)}
-              >
-                <option value="">Vyber nemovitost</option>
-                {properties.map((property) => (
-                  <option key={property.id} value={property.id}>
-                    {property.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {createError && <p className="text-xs text-destructive">{createError}</p>}
-            <Button type="submit" variant="cta" className="w-full" disabled={isCreating}>
-              {isCreating ? "Ukladam..." : "Ulozit najemnika"}
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {loading && <p className="text-sm text-muted-foreground">Nacitam najemniky...</p>}
-      {!loading && error && <p className="text-sm text-destructive">{error}</p>}
+      {error && !loading ? (
+        <DataState
+          variant="error"
+          title="Najemniky se nepodarilo nacist"
+          description={error}
+          actionLabel="Zkusit znovu"
+          onAction={() => loadTenants()}
+        />
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-5 min-h-[500px]">
         <Card className="lg:col-span-2 card-shadow flex flex-col">
@@ -517,8 +591,22 @@ export default function TenantsPage() {
           <CardContent className="flex-1 p-0">
             <ScrollArea className="h-[calc(100vh-320px)]">
               <div className="space-y-1 p-3">
-                {!loading &&
-                  !error &&
+                {loading ? (
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <div className="rounded-lg border p-3 space-y-2" key={`tenant-skeleton-${index}`}>
+                      <Skeleton className="h-4 w-2/3" />
+                      <Skeleton className="h-4 w-1/2" />
+                      <Skeleton className="h-2 w-full" />
+                    </div>
+                  ))
+                ) : tenants.length === 0 ? (
+                  <DataState
+                    title="Zatim nemate zadne najemniky"
+                    description="Prvniho najemnika pridate tlacitkem nahore."
+                    actionLabel="Pridat najemnika"
+                    onAction={() => setIsCreateOpen(true)}
+                  />
+                ) : (
                   tenants.map((tenant) => (
                     <button
                       key={tenant.id}
@@ -551,10 +639,7 @@ export default function TenantsPage() {
                       </div>
                       <DepositHealthBar deposit={tenant.deposit} debt={tenant.debt} />
                     </button>
-                  ))}
-
-                {!loading && !error && tenants.length === 0 && (
-                  <p className="text-sm text-muted-foreground px-3 py-2">Backend nevratil zadne najemniky.</p>
+                  ))
                 )}
               </div>
             </ScrollArea>
@@ -573,15 +658,15 @@ export default function TenantsPage() {
                 <div className="min-w-0">
                   <p className="font-semibold truncate">{selectedTenant?.name ?? "Neni vybran najemnik"}</p>
                   <p className="text-sm text-muted-foreground truncate">{selectedTenant?.unit ?? "-"}</p>
-                  {selectedTenant && (
+                  {selectedTenant ? (
                     <PrescribedRent propertyId={selectedTenant.propertyId} rent={selectedTenant.propertyRent} />
-                  )}
+                  ) : null}
                 </div>
               </div>
               <div className="flex-1">
                 <DepositHealthBar deposit={selectedTenant?.deposit ?? 0} debt={selectedTenant?.debt ?? 0} />
               </div>
-              {selectedTenant && <ContractSettingsModal tenant={selectedTenant} />}
+              {selectedTenant ? <ContractSettingsModal tenant={selectedTenant} /> : null}
               <Button
                 type="button"
                 variant="outline"
@@ -639,10 +724,10 @@ export default function TenantsPage() {
                           value={paymentType}
                           onChange={(e) => setPaymentType(e.target.value)}
                         >
-                          <option value="Nájem">Nájem</option>
-                          <option value="Záloha na služby">Záloha na služby</option>
+                          <option value="Najem">Najem</option>
+                          <option value="Zaloha na sluzby">Zaloha na sluzby</option>
                           <option value="Kauce">Kauce</option>
-                          <option value="Jiné">Jiné</option>
+                          <option value="Jine">Jine</option>
                         </select>
                       </div>
                       <div className="space-y-2">
@@ -663,12 +748,20 @@ export default function TenantsPage() {
               </div>
             </CardHeader>
             <CardContent className="p-4">
-              {paymentsLoading && <p className="text-sm text-muted-foreground">Nacitam platby...</p>}
-              {!paymentsLoading && paymentsError && <p className="text-sm text-destructive">{paymentsError}</p>}
-              {!paymentsLoading && !paymentsError && payments.length === 0 && (
-                <p className="text-sm text-muted-foreground">Zatim nejsou evidovane zadne platby.</p>
-              )}
-              {!paymentsLoading && !paymentsError && payments.length > 0 && (
+              {paymentsLoading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <Skeleton key={`payment-skeleton-${index}`} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : paymentsError ? (
+                <DataState variant="error" title="Platby se nepodarilo nacist" description={paymentsError} />
+              ) : payments.length === 0 ? (
+                <DataState
+                  title="Zatim nejsou evidovane zadne platby"
+                  description="Po ulozeni prvni platby se historie zobrazi zde."
+                />
+              ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -707,11 +800,11 @@ export default function TenantsPage() {
                 <div className="space-y-4">
                   {mockMessages.map((msg) => (
                     <div key={msg.id} className={`flex gap-3 ${msg.from === "ai" ? "" : "justify-end"}`}>
-                      {msg.from === "ai" && (
+                      {msg.from === "ai" ? (
                         <div className="h-8 w-8 shrink-0 rounded-full bg-primary/10 flex items-center justify-center">
                           <Bot className="h-4 w-4 text-primary" />
                         </div>
-                      )}
+                      ) : null}
                       <div
                         className={`rounded-xl px-4 py-3 max-w-[80%] text-sm ${
                           msg.from === "ai" ? "bg-accent" : "bg-primary text-primary-foreground"
@@ -719,11 +812,11 @@ export default function TenantsPage() {
                       >
                         {msg.text}
                       </div>
-                      {msg.from === "tenant" && (
+                      {msg.from === "tenant" ? (
                         <div className="h-8 w-8 shrink-0 rounded-full bg-muted flex items-center justify-center">
                           <User className="h-4 w-4 text-muted-foreground" />
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   ))}
                   <div className="flex justify-start pl-11">
