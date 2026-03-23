@@ -14,6 +14,9 @@ Frontend je aplikace postavena na React + Vite + Tailwind CSS.
 - `SettingsPage` nacita/uklada profil pres backend endpointy:
   - `GET /api/profile`
   - `PUT /api/profile`
+- `DocumentsPage` (AI Pravnik) pouziva existujici Lovable UI a je napojena na:
+  - `POST /api/chat`
+  - frontend drzi historii konverzace lokalne ve state a posila ji na backend
 - `apiFetch`:
   - bere base URL z `VITE_API_URL` (fallback `http://localhost:5000`)
   - nacita aktualni Supabase session

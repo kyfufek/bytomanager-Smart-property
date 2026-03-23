@@ -10,7 +10,7 @@ Backend je Node.js + Express API server.
 - endpoint nemovitosti: `GET /api/properties`
 - endpoint najemnici: `GET /api/tenants`
 - endpoint profil: `GET /api/profile`, `PUT /api/profile`
-- endpoint AI chat: `POST /api/chat` (auth required, LLM odpoved)
+- endpoint AI chat: `POST /api/chat` (auth required, prijima `message` + `history`, vraci `answer`)
 - endpoint pokrocile vyuctovani: `POST /api/billing/generate-report` (osobomesice, vodomery, prime naklady, zalohy)
 
 ## LLM vrstva (abstrakce)
@@ -30,6 +30,7 @@ Backend je Node.js + Express API server.
 - System prompt je ulozen v `backend/chatbot-instructions.md`.
 - Nacita se pri startu backendu pres `backend/config/chatbotPrompt.js` (jen jednou).
 - Pri requestu se prompt znovu necte ze souboru.
+- Backend historii chatu neuklada do DB, pouze ji validuje a preda LLM vrstve.
 
 ## Udrzba kontextu
 
