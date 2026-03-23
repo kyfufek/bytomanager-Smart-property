@@ -94,12 +94,17 @@ backend/
 ### Aktualni stav a ukoly
 - Server bezi a vraci mock data z GET endpointu (napr. `/api/properties`, `/api/tenants`, `/api/tenants/:id`).
 - Existuji i endpointy pro AI chat a pokrocile vyuctovani.
+- Chat endpoint `POST /api/chat` je chraneny auth middleware a pouziva LLM service vrstvu.
 
 ### Pridani noveho endpointu
 1. Definuj logiku v `backend/routes/`.
 2. Zaregistruj router v `backend/server.js`.
 3. Pri DB operacich pouzij `try/catch` a vrat srozumitelny HTTP status + chybu.
 4. Pokud endpoint pouziva LLM, volej pouze `backend/services/llm` (nikdy ne provider API primo).
+
+### Chatbot prompt
+- System prompt pro chatbot je v `backend/chatbot-instructions.md`.
+- Nacita se pri startu backendu a backend ho necte z disku pri kazdem requestu.
 
 ## Database (Supabase) Guidance
 (Plne relevantni po dokonceni migrace na Supabase)
