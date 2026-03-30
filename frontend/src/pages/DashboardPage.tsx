@@ -65,15 +65,18 @@ export default function DashboardPage() {
         apiFetch("/api/payments", { signal }),
       ]);
 
-      if (!propertiesRes.ok || !tenantsRes.ok || !paymentsRes.ok) {
+      if (!propertiesRes.ok || !tenantsRes.ok) {
         throw new Error("Backend request failed");
       }
 
-      const [propertiesData, tenantsData, paymentsData] = await Promise.all([
+      const [propertiesData, tenantsData] = await Promise.all([
         propertiesRes.json() as Promise<PropertyApiItem[]>,
         tenantsRes.json() as Promise<TenantApiItem[]>,
-        paymentsRes.json() as Promise<PaymentApiItem[]>,
       ]);
+
+      const paymentsData = paymentsRes.ok
+        ? ((await paymentsRes.json()) as PaymentApiItem[])
+        : [];
 
       setProperties(propertiesData);
       setTenants(tenantsData);

@@ -71,12 +71,12 @@ router.get('/tenants', async (req, res) => {
 
   const { data: latestPaymentByTenant, error: paymentError } = await fetchPaymentMapByTenant(req.user.id, tenantIds);
   if (paymentError) {
-    console.error(paymentError);
-    return res.status(500).json({ error: 'Failed to fetch tenant payment summary.' });
+    console.warn('[tenants] payment summary unavailable, falling back to empty status map', paymentError.message);
   }
+  const paymentMap = latestPaymentByTenant || new Map();
 
   const normalized = tenants.map((row) => {
-    const latestPayment = latestPaymentByTenant.get(row.id) || null;
+    const latestPayment = paymentMap.get(row.id) || null;
     const latestPaymentStatus = latestPayment?.status ?? null;
     const latestPaymentAmount = Number(latestPayment?.amount ?? 0);
 
@@ -120,11 +120,9 @@ router.get('/tenants/:id', async (req, res) => {
 
   const { data: latestPaymentByTenant, error: paymentError } = await fetchPaymentMapByTenant(req.user.id, [id]);
   if (paymentError) {
-    console.error(paymentError);
-    return res.status(500).json({ error: 'Failed to fetch tenant payment summary.' });
+    console.warn('[tenants] payment summary unavailable for tenant detail', paymentError.message);
   }
-
-  const latestPayment = latestPaymentByTenant.get(id) || null;
+  const latestPayment = (latestPaymentByTenant || new Map()).get(id) || null;
   const latestPaymentStatus = latestPayment?.status ?? null;
   const latestPaymentAmount = Number(latestPayment?.amount ?? 0);
 
