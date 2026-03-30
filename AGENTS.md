@@ -56,8 +56,8 @@ npm run dev
 ### Backend
 - Runtime: Node.js
 - Framework: Express.js
-- Databaze: aktualne mock data, planovany prechod na Supabase (PostgreSQL)
-- Knihovny: `cors`, `dotenv`, planovane `@supabase/supabase-js`
+- Databaze: Supabase (PostgreSQL)
+- Knihovny: `cors`, `dotenv`, `@supabase/supabase-js`
 - LLM architektura: provider-agnosticka vrstva v `backend/services/llm/` (vychozi OpenAI adapter)
 
 ## Code Quality & Security Rules
@@ -79,8 +79,9 @@ Slozka obsahuje standardni Vite/React strukturu vytvorenou nastrojem Lovable. Zm
   - Moje nemovitosti
   - Najemnici
   - Dashboard
+  - Finance (interni historie plateb)
   - Vyuctovani sluzeb
-- Cast formularu je zatim pripravena na zapis, ale plne ukladani do DB ceka na Supabase integraci.
+- Platby se zadavaji rucne pres aplikaci (zadne bankovni API / open banking).
 
 ## Backend Agent Guidance
 ### Struktura (`backend/`)
@@ -92,9 +93,17 @@ backend/
 ```
 
 ### Aktualni stav a ukoly
-- Server bezi a vraci mock data z GET endpointu (napr. `/api/properties`, `/api/tenants`, `/api/tenants/:id`).
+- Server bezi nad Supabase a vraci data pres auth-protected endpointy (napr. `/api/properties`, `/api/tenants`, `/api/tenants/:id`, `/api/payments`).
 - Existuji i endpointy pro AI chat a pokrocile vyuctovani.
 - Chat endpoint `POST /api/chat` je chraneny auth middleware a pouziva LLM service vrstvu.
+- Platebni vrstva:
+  - `GET /api/payments`
+  - `GET /api/payments/tenant/:tenantId`
+  - `POST /api/payments`
+  - `PUT /api/payments/:id`
+  - `owner_id` se vzdy bere z `req.user.id` (nikdy z request body)
+  - `status` se odvozuje z `due_date` + `paid_date` (`paid`, `pending`, `overdue`)
+  - tenant/property ownership se validuje proti prihlasenemu uzivateli
 
 ### Pridani noveho endpointu
 1. Definuj logiku v `backend/routes/`.
@@ -107,12 +116,11 @@ backend/
 - Nacita se pri startu backendu a backend ho necte z disku pri kazdem requestu.
 
 ## Database (Supabase) Guidance
-(Plne relevantni po dokonceni migrace na Supabase)
-
 - Pripojeni pres:
   - `SUPABASE_URL`
-  - `SUPABASE_ANON_KEY`
+  - `SUPABASE_SERVICE_ROLE_KEY`
 - Operace CRUD pres oficialniho klienta `@supabase/supabase-js` v backend routach.
+- SQL pro prvni verzi plateb je v `backend/sql/2026-03-30-payments-v1.sql` (tabulka `payments`, indexy, trigger `updated_at`, RLS policies).
 
 ## Environment Variables & Secrets
 Kazda cast aplikace ma vlastni `.env` soubor pro lokalni vyvoj. Nikdy je necommituj.

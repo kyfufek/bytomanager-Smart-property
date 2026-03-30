@@ -31,6 +31,11 @@ type TenantApiItem = {
   currentDebt: number;
 };
 
+type PaymentApiItem = {
+  id: number | string;
+  status: "paid" | "pending" | "overdue";
+};
+
 const statusLabelMap: Record<string, string> = {
   uhrazeno: "Zaplaceno",
   "po splatnosti": "Po splatnosti",
@@ -45,6 +50,7 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [properties, setProperties] = useState<PropertyApiItem[]>([]);
   const [tenants, setTenants] = useState<TenantApiItem[]>([]);
+  const [payments, setPayments] = useState<PaymentApiItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -53,22 +59,25 @@ export default function DashboardPage() {
       setLoading(true);
       setError("");
 
-      const [propertiesRes, tenantsRes] = await Promise.all([
+      const [propertiesRes, tenantsRes, paymentsRes] = await Promise.all([
         apiFetch("/api/properties", { signal }),
         apiFetch("/api/tenants", { signal }),
+        apiFetch("/api/payments", { signal }),
       ]);
 
-      if (!propertiesRes.ok || !tenantsRes.ok) {
+      if (!propertiesRes.ok || !tenantsRes.ok || !paymentsRes.ok) {
         throw new Error("Backend request failed");
       }
 
-      const [propertiesData, tenantsData] = await Promise.all([
+      const [propertiesData, tenantsData, paymentsData] = await Promise.all([
         propertiesRes.json() as Promise<PropertyApiItem[]>,
         tenantsRes.json() as Promise<TenantApiItem[]>,
+        paymentsRes.json() as Promise<PaymentApiItem[]>,
       ]);
 
       setProperties(propertiesData);
       setTenants(tenantsData);
+      setPayments(paymentsData);
     } catch {
       if (signal?.aborted) return;
       setError("Data se nepodarilo nacist. Zkontrolujte pripojeni k backendu a zkuste to znovu.");
@@ -96,8 +105,10 @@ export default function DashboardPage() {
       propertiesCount: properties.length,
       tenantsCount: tenants.length,
       debtTenants,
+      paidPayments: payments.filter((p) => p.status === "paid").length,
+      unpaidPayments: payments.filter((p) => p.status !== "paid").length,
     };
-  }, [properties, tenants]);
+  }, [payments, properties, tenants]);
 
   const paymentRows = useMemo(() => {
     return properties.map((property) => ({
@@ -358,17 +369,20 @@ export default function DashboardPage() {
       </Card>
 
       {!loading && !error && (
-        <Card className="card-shadow">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Uhrazene nemovitosti</p>
-              <p className="text-xl font-semibold">
-                {kpis.paidCount} / {kpis.propertiesCount}
-              </p>
-            </div>
-            <Badge className="bg-primary/10 text-primary border-0">Live API</Badge>
-          </CardContent>
-        </Card>
+          <Card className="card-shadow">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Uhrazene nemovitosti</p>
+                <p className="text-xl font-semibold">
+                  {kpis.paidCount} / {kpis.propertiesCount}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Platby: {kpis.paidPayments} uhrazeno / {kpis.unpaidPayments} neuhrazeno
+                </p>
+              </div>
+              <Badge className="bg-primary/10 text-primary border-0">Live API</Badge>
+            </CardContent>
+          </Card>
       )}
     </div>
   );

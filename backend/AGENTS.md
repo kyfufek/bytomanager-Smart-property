@@ -9,6 +9,11 @@ Backend je Node.js + Express API server.
 - health endpoint: `GET /api/health`
 - endpoint nemovitosti: `GET /api/properties`
 - endpoint najemnici: `GET /api/tenants`
+- endpoint platby:
+  - `GET /api/payments`
+  - `GET /api/payments/tenant/:tenantId`
+  - `POST /api/payments`
+  - `PUT /api/payments/:id`
 - endpoint profil: `GET /api/profile`, `PUT /api/profile`
 - endpoint AI chat: `POST /api/chat` (auth required, prijima `message` + `history`, vraci `answer`)
 - endpoint pokrocile vyuctovani: `POST /api/billing/generate-report` (osobomesice, vodomery, prime naklady, zalohy)
@@ -35,3 +40,19 @@ Backend je Node.js + Express API server.
 ## Udrzba kontextu
 
 Pokud pridas novou funkci, endpoint nebo zmenis strukturu projektu, aktualizuj prislusny AGENTS.md.
+
+## Platby v1 (internal tracking)
+
+- Ownership:
+  - `owner_id` se vzdy odvozuje z `req.user.id` (nikdy z request body).
+  - tenant i property musi patrit prihlasenemu uzivateli.
+- Validace:
+  - `amount` musi byt > 0
+  - `due_date` musi byt validni datum
+  - `paid_date` je volitelne, ale pokud je zadano, musi byt validni datum
+- Stav platby:
+  - `paid`: ma vyplnene `paid_date`
+  - `overdue`: nema `paid_date` a `due_date` je v minulosti
+  - `pending`: nema `paid_date` a `due_date` jeste nenastalo
+- Sdilena logika validace/normalizace plateb je v `backend/services/payments/paymentUtils.js`.
+- SQL schema + RLS pro payments je v `backend/sql/2026-03-30-payments-v1.sql`.

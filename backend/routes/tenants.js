@@ -1,10 +1,60 @@
 const express = require('express');
 const { supabase } = require('../config/supabaseClient');
 const { requireAuth } = require('../middleware/requireAuth');
+const {
+  getMissingColumnName,
+  normalizePaymentRecord,
+  sortPaymentsNewestFirst,
+} = require('../services/payments/paymentUtils');
 
 const router = express.Router();
 
 router.use(requireAuth);
+
+async function fetchPaymentMapByTenant(ownerId, tenantIds) {
+  if (!tenantIds.length) {
+    return { data: new Map(), error: null };
+  }
+
+  const byOwner = await supabase
+    .from('payments')
+    .select('*')
+    .eq('owner_id', ownerId)
+    .in('tenant_id', tenantIds);
+
+  let rows = byOwner.data;
+  let error = byOwner.error;
+
+  if (error) {
+    const missingColumn = getMissingColumnName(error);
+    if (missingColumn !== 'owner_id') {
+      return { data: null, error };
+    }
+
+    const fallback = await supabase
+      .from('payments')
+      .select('*')
+      .in('tenant_id', tenantIds);
+
+    rows = fallback.data;
+    error = fallback.error;
+  }
+
+  if (error) {
+    return { data: null, error };
+  }
+
+  const normalized = sortPaymentsNewestFirst((rows || []).map(normalizePaymentRecord));
+  const map = new Map();
+  for (const payment of normalized) {
+    if (!payment.tenant_id) continue;
+    if (!map.has(payment.tenant_id)) {
+      map.set(payment.tenant_id, payment);
+    }
+  }
+
+  return { data: map, error: null };
+}
 
 router.get('/tenants', async (req, res) => {
   const { data, error } = await supabase
@@ -16,15 +66,36 @@ router.get('/tenants', async (req, res) => {
     return res.status(500).json({ error: 'Failed to fetch tenants.' });
   }
 
-  const normalized = (data || []).map((row) => ({
-    ...row,
-    // Frontend currently expects these keys.
-    name: row.name ?? row.full_name,
-    apartment: row.apartment ?? row.properties?.name ?? null,
-    property_rent: Number(row.property_rent ?? row.properties?.rent ?? 0),
-    deposit: Number(row.deposit ?? 0),
-    currentDebt: Number(row.currentDebt ?? row.current_debt ?? 0),
-  }));
+  const tenants = data || [];
+  const tenantIds = tenants.map((row) => row.id);
+
+  const { data: latestPaymentByTenant, error: paymentError } = await fetchPaymentMapByTenant(req.user.id, tenantIds);
+  if (paymentError) {
+    console.error(paymentError);
+    return res.status(500).json({ error: 'Failed to fetch tenant payment summary.' });
+  }
+
+  const normalized = tenants.map((row) => {
+    const latestPayment = latestPaymentByTenant.get(row.id) || null;
+    const latestPaymentStatus = latestPayment?.status ?? null;
+    const latestPaymentAmount = Number(latestPayment?.amount ?? 0);
+
+    return {
+      ...row,
+      // Frontend currently expects these keys.
+      name: row.name ?? row.full_name,
+      apartment: row.apartment ?? row.properties?.name ?? null,
+      property_rent: Number(row.property_rent ?? row.properties?.rent ?? 0),
+      deposit: Number(row.deposit ?? 0),
+      currentDebt: Number(row.currentDebt ?? row.current_debt ?? 0),
+      payment_status: latestPaymentStatus ?? 'none',
+      payment_due_date: latestPayment?.due_date ?? null,
+      payment_paid_date: latestPayment?.paid_date ?? null,
+      payment_amount_paid: latestPaymentStatus === 'paid' ? latestPaymentAmount : 0,
+      payment_amount_due: latestPaymentStatus === 'paid' ? 0 : latestPaymentAmount,
+      has_payment_history: Boolean(latestPayment),
+    };
+  });
 
   return res.json(normalized);
 });
@@ -47,6 +118,16 @@ router.get('/tenants/:id', async (req, res) => {
     return res.status(404).json({ error: 'Tenant not found.' });
   }
 
+  const { data: latestPaymentByTenant, error: paymentError } = await fetchPaymentMapByTenant(req.user.id, [id]);
+  if (paymentError) {
+    console.error(paymentError);
+    return res.status(500).json({ error: 'Failed to fetch tenant payment summary.' });
+  }
+
+  const latestPayment = latestPaymentByTenant.get(id) || null;
+  const latestPaymentStatus = latestPayment?.status ?? null;
+  const latestPaymentAmount = Number(latestPayment?.amount ?? 0);
+
   return res.json({
     ...data,
     name: data?.name ?? data?.full_name,
@@ -54,6 +135,12 @@ router.get('/tenants/:id', async (req, res) => {
     property_rent: Number(data?.property_rent ?? data?.properties?.rent ?? 0),
     deposit: Number(data?.deposit ?? 0),
     currentDebt: Number(data?.currentDebt ?? data?.current_debt ?? 0),
+    payment_status: latestPaymentStatus ?? 'none',
+    payment_due_date: latestPayment?.due_date ?? null,
+    payment_paid_date: latestPayment?.paid_date ?? null,
+    payment_amount_paid: latestPaymentStatus === 'paid' ? latestPaymentAmount : 0,
+    payment_amount_due: latestPaymentStatus === 'paid' ? 0 : latestPaymentAmount,
+    has_payment_history: Boolean(latestPayment),
   });
 });
 
@@ -119,6 +206,12 @@ router.post('/tenants', async (req, res) => {
     property_rent: Number(data?.property_rent ?? data?.properties?.rent ?? 0),
     deposit: Number(data?.deposit ?? 0),
     currentDebt: Number(data?.currentDebt ?? data?.current_debt ?? 0),
+    payment_status: 'none',
+    payment_due_date: null,
+    payment_paid_date: null,
+    payment_amount_paid: 0,
+    payment_amount_due: 0,
+    has_payment_history: false,
   });
 });
 

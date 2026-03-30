@@ -11,6 +11,7 @@ Frontend je aplikace postavena na React + Vite + Tailwind CSS.
 ## API napojeni
 
 - `DashboardPage`, `PropertiesPage`, `TenantsPage` pouzivaji `apiFetch` helper z `src/lib/api.ts`
+- `FinancePage` a `TenantsPage` pouzivaji backend payments endpointy (`/api/payments*`) pro interni historii plateb
 - `SettingsPage` nacita/uklada profil pres backend endpointy:
   - `GET /api/profile`
   - `PUT /api/profile`
@@ -38,6 +39,17 @@ Frontend je aplikace postavena na React + Vite + Tailwind CSS.
 ## Udrzba kontextu
 
 Pokud pridas novou funkci, endpoint nebo zmenis strukturu projektu, aktualizuj prislusny AGENTS.md.
+
+## Platby v1 (frontend)
+
+- Platby jsou aktualne vedene pouze interne v aplikaci (manualni zadavani), bez bank API/importu.
+- `TenantsPage` zobrazuje per-tenant stav platby (`paid`, `pending`, `overdue`, `none`) + posledni splatnost/uhradu.
+- `FinancePage` zobrazuje globalni seznam plateb, KPI souhrn a formular pro rucni pridani platby.
+- Oznaceni platby jako uhrazene jde pres `PUT /api/payments/:id` s `paid_date`.
+- Povinne UX stavy:
+  - loading: skeletony
+  - empty: `DataState`
+  - error: `DataState` + destructive toast
 
 ## UX reusable vrstva (product polish)
 

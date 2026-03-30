@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bot, FileWarning, FileX, Mail, Send, Settings, Shield, User } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,8 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 
+type PaymentStatus = "paid" | "pending" | "overdue" | "none";
+
 type TenantApiItem = {
   id: string;
   name: string;
@@ -30,6 +32,12 @@ type TenantApiItem = {
   currentDebt: number;
   property_id?: string;
   property_rent?: number;
+  payment_status?: PaymentStatus;
+  payment_due_date?: string | null;
+  payment_paid_date?: string | null;
+  payment_amount_paid?: number;
+  payment_amount_due?: number;
+  has_payment_history?: boolean;
   properties?: {
     name?: string | null;
     rent?: number | null;
@@ -48,6 +56,12 @@ type TenantViewModel = {
   debt: number;
   dueDay: number;
   toleranceDays: number;
+  paymentStatus: PaymentStatus;
+  paymentDueDate: string | null;
+  paymentPaidDate: string | null;
+  paymentAmountPaid: number;
+  paymentAmountDue: number;
+  hasPaymentHistory: boolean;
 };
 
 type PropertyOption = {
@@ -58,9 +72,11 @@ type PropertyOption = {
 type PaymentApiItem = {
   id: string;
   tenant_id: string;
+  property_id: string | null;
   amount: number;
-  payment_date: string;
-  payment_type: string;
+  due_date: string;
+  paid_date: string | null;
+  status: Exclude<PaymentStatus, "none">;
   note?: string | null;
 };
 
@@ -73,6 +89,20 @@ const mockMessages = [
   },
 ];
 
+const paymentStatusLabels: Record<PaymentStatus, string> = {
+  paid: "Uhrazeno",
+  pending: "Ceka na uhradu",
+  overdue: "Po splatnosti",
+  none: "Bez plateb",
+};
+
+function getPaymentStatusBadgeClass(status: PaymentStatus) {
+  if (status === "paid") return "bg-success/10 text-success border-0 shrink-0";
+  if (status === "overdue") return "bg-destructive/10 text-destructive border-0 shrink-0";
+  if (status === "pending") return "bg-warning/10 text-warning border-0 shrink-0";
+  return "bg-muted text-muted-foreground border-0 shrink-0";
+}
+
 function getInitials(name: string) {
   return name
     .split(" ")
@@ -84,19 +114,33 @@ function getInitials(name: string) {
 
 function mapTenantApiToViewModel(item: TenantApiItem): TenantViewModel {
   const resolvedUnit = item.apartment ?? item.properties?.name ?? "Bez bytu";
+  const paymentStatus: PaymentStatus = item.payment_status ?? "none";
   return {
     id: item.id,
     propertyId: item.property_id,
     name: item.name,
     unit: resolvedUnit,
     propertyRent: Number(item.property_rent ?? item.properties?.rent ?? 0),
-    paid: Number(item.currentDebt || 0) <= 0,
+    paid: paymentStatus === "paid",
     initials: getInitials(item.name),
     deposit: Number(item.deposit || 0),
     debt: Number(item.currentDebt || 0),
     dueDay: 15,
     toleranceDays: 5,
+    paymentStatus,
+    paymentDueDate: item.payment_due_date ?? null,
+    paymentPaidDate: item.payment_paid_date ?? null,
+    paymentAmountPaid: Number(item.payment_amount_paid ?? 0),
+    paymentAmountDue: Number(item.payment_amount_due ?? 0),
+    hasPaymentHistory: Boolean(item.has_payment_history),
   };
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("cs-CZ");
 }
 
 function DepositHealthBar({ deposit, debt }: { deposit: number; debt: number }) {
@@ -293,10 +337,11 @@ export default function TenantsPage() {
   const [paymentsError, setPaymentsError] = useState("");
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [paymentType, setPaymentType] = useState("Najem");
+  const [paymentDueDate, setPaymentDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [paymentPaidDate, setPaymentPaidDate] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
   const [isSavingPayment, setIsSavingPayment] = useState(false);
+  const [updatingPaymentId, setUpdatingPaymentId] = useState<string | null>(null);
 
   async function loadTenants(signal?: AbortSignal) {
     try {
@@ -467,8 +512,8 @@ export default function TenantsPage() {
       return;
     }
 
-    if (!paymentDate) {
-      setPaymentsError("Vyberte datum platby.");
+    if (!paymentDueDate) {
+      setPaymentsError("Vyberte datum splatnosti.");
       return;
     }
 
@@ -480,9 +525,10 @@ export default function TenantsPage() {
         method: "POST",
         body: JSON.stringify({
           tenant_id: selectedTenant.id,
+          property_id: selectedTenant.propertyId,
           amount: parsedAmount,
-          payment_date: paymentDate,
-          payment_type: paymentType,
+          due_date: paymentDueDate,
+          paid_date: paymentPaidDate || null,
           note: paymentNote.trim() || null,
         }),
       });
@@ -494,10 +540,11 @@ export default function TenantsPage() {
       const created = (await response.json()) as PaymentApiItem;
       setPayments((prev) => [created, ...prev]);
       setPaymentAmount("");
-      setPaymentDate(new Date().toISOString().slice(0, 10));
-      setPaymentType("Najem");
+      setPaymentDueDate(new Date().toISOString().slice(0, 10));
+      setPaymentPaidDate("");
       setPaymentNote("");
       setIsPaymentOpen(false);
+      await loadTenants();
       toast({
         title: "Platba ulozena",
         description: "Platba byla uspesne zapsana do historie.",
@@ -514,11 +561,39 @@ export default function TenantsPage() {
     }
   }
 
-  function formatPaymentDate(value: string) {
-    if (!value) return "-";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleDateString("cs-CZ");
+  async function handleMarkPaymentAsPaid(paymentId: string) {
+    if (!selectedTenant || updatingPaymentId) return;
+
+    try {
+      setUpdatingPaymentId(paymentId);
+      const today = new Date().toISOString().slice(0, 10);
+      const response = await apiFetch(`/api/payments/${paymentId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          paid_date: today,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const updated = (await response.json()) as PaymentApiItem;
+      setPayments((prev) => prev.map((item) => (item.id === paymentId ? updated : item)));
+      await loadTenants();
+      toast({
+        title: "Platba oznacena jako uhrazena",
+        description: "Stav platby byl aktualizovan.",
+      });
+    } catch {
+      toast({
+        title: "Aktualizace selhala",
+        description: "Platbu se nepodarilo oznacit jako uhrazenou.",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingPaymentId(null);
+    }
   }
 
   const headerName = useMemo(() => selectedTenant?.name ?? "-", [selectedTenant]);
@@ -625,16 +700,17 @@ export default function TenantsPage() {
                           <p className="text-sm font-medium truncate">{tenant.name}</p>
                           <p className="text-xs text-muted-foreground truncate">{tenant.unit}</p>
                           <PrescribedRent propertyId={tenant.propertyId} rent={tenant.propertyRent} />
+                          {tenant.hasPaymentHistory ? (
+                            <p className="text-xs text-muted-foreground">
+                              Splatnost: {formatDate(tenant.paymentDueDate)}
+                              {tenant.paymentStatus === "paid" ? `, uhrazeno: ${formatDate(tenant.paymentPaidDate)}` : ""}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">Zatim bez evidovane platby</p>
+                          )}
                         </div>
-                        <Badge
-                          variant="secondary"
-                          className={
-                            tenant.paid
-                              ? "bg-success/10 text-success border-0 shrink-0"
-                              : "bg-destructive/10 text-destructive border-0 shrink-0"
-                          }
-                        >
-                          {tenant.paid ? "OK" : "Dluh"}
+                        <Badge variant="secondary" className={getPaymentStatusBadgeClass(tenant.paymentStatus)}>
+                          {paymentStatusLabels[tenant.paymentStatus]}
                         </Badge>
                       </div>
                       <DepositHealthBar deposit={tenant.deposit} debt={tenant.debt} />
@@ -660,6 +736,16 @@ export default function TenantsPage() {
                   <p className="text-sm text-muted-foreground truncate">{selectedTenant?.unit ?? "-"}</p>
                   {selectedTenant ? (
                     <PrescribedRent propertyId={selectedTenant.propertyId} rent={selectedTenant.propertyRent} />
+                  ) : null}
+                  {selectedTenant ? (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Stav platby: {paymentStatusLabels[selectedTenant.paymentStatus]}
+                      {selectedTenant.paymentStatus === "paid"
+                        ? `, zaplaceno ${selectedTenant.paymentAmountPaid.toLocaleString("cs-CZ")} Kc (${formatDate(selectedTenant.paymentPaidDate)})`
+                        : selectedTenant.hasPaymentHistory
+                          ? `, k uhrade ${selectedTenant.paymentAmountDue.toLocaleString("cs-CZ")} Kc (splatnost ${formatDate(selectedTenant.paymentDueDate)})`
+                          : ", zatim bez plateb"}
+                    </p>
                   ) : null}
                 </div>
               </div>
@@ -708,27 +794,22 @@ export default function TenantsPage() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="payment-date">Datum platby</Label>
+                        <Label htmlFor="payment-due-date">Datum splatnosti</Label>
                         <Input
-                          id="payment-date"
+                          id="payment-due-date"
                           type="date"
-                          value={paymentDate}
-                          onChange={(e) => setPaymentDate(e.target.value)}
+                          value={paymentDueDate}
+                          onChange={(e) => setPaymentDueDate(e.target.value)}
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="payment-type">Typ platby</Label>
-                        <select
-                          id="payment-type"
-                          className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                          value={paymentType}
-                          onChange={(e) => setPaymentType(e.target.value)}
-                        >
-                          <option value="Najem">Najem</option>
-                          <option value="Zaloha na sluzby">Zaloha na sluzby</option>
-                          <option value="Kauce">Kauce</option>
-                          <option value="Jine">Jine</option>
-                        </select>
+                        <Label htmlFor="payment-paid-date">Datum uhrady (volitelne)</Label>
+                        <Input
+                          id="payment-paid-date"
+                          type="date"
+                          value={paymentPaidDate}
+                          onChange={(e) => setPaymentPaidDate(e.target.value)}
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="payment-note">Poznamka</Label>
@@ -767,18 +848,40 @@ export default function TenantsPage() {
                     <thead>
                       <tr className="text-left border-b">
                         <th className="py-2 pr-4 font-medium">Castka</th>
-                        <th className="py-2 pr-4 font-medium">Datum</th>
-                        <th className="py-2 pr-4 font-medium">Typ</th>
+                        <th className="py-2 pr-4 font-medium">Splatnost</th>
+                        <th className="py-2 pr-4 font-medium">Uhrazeno</th>
+                        <th className="py-2 pr-4 font-medium">Stav</th>
                         <th className="py-2 pr-4 font-medium">Poznamka</th>
+                        <th className="py-2 pr-4 font-medium text-right">Akce</th>
                       </tr>
                     </thead>
                     <tbody>
                       {payments.map((payment) => (
                         <tr key={payment.id} className="border-b last:border-b-0">
                           <td className="py-2 pr-4">{Number(payment.amount ?? 0).toLocaleString("cs-CZ")} Kc</td>
-                          <td className="py-2 pr-4">{formatPaymentDate(payment.payment_date)}</td>
-                          <td className="py-2 pr-4">{payment.payment_type || "-"}</td>
+                          <td className="py-2 pr-4">{formatDate(payment.due_date)}</td>
+                          <td className="py-2 pr-4">{formatDate(payment.paid_date)}</td>
+                          <td className="py-2 pr-4">
+                            <Badge variant="secondary" className={getPaymentStatusBadgeClass(payment.status)}>
+                              {paymentStatusLabels[payment.status]}
+                            </Badge>
+                          </td>
                           <td className="py-2 pr-4">{payment.note || "-"}</td>
+                          <td className="py-2 pr-4 text-right">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={payment.status === "paid" || updatingPaymentId === payment.id}
+                              onClick={() => handleMarkPaymentAsPaid(payment.id)}
+                            >
+                              {updatingPaymentId === payment.id
+                                ? "Ukladam..."
+                                : payment.status === "paid"
+                                  ? "Uhrazeno"
+                                  : "Oznacit jako zaplaceno"}
+                            </Button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
