@@ -83,14 +83,14 @@ export default function FinancePage() {
         apiFetch("/api/tenants", { signal }),
       ]);
 
-      if (!paymentsRes.ok || !tenantsRes.ok) {
-        throw new Error("Backend request failed");
+      if (!tenantsRes.ok) {
+        throw new Error("Tenants request failed");
       }
 
-      const [paymentsData, tenantsData] = await Promise.all([
-        paymentsRes.json() as Promise<PaymentItem[]>,
-        tenantsRes.json() as Promise<TenantItem[]>,
-      ]);
+      const tenantsData = (await tenantsRes.json()) as TenantItem[];
+      const paymentsData = paymentsRes.ok
+        ? ((await paymentsRes.json()) as PaymentItem[])
+        : [];
 
       setPayments(paymentsData);
       setTenants(tenantsData);
