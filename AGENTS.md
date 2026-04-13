@@ -82,6 +82,11 @@ Slozka obsahuje standardni Vite/React strukturu vytvorenou nastrojem Lovable. Zm
   - Finance (interni historie plateb)
   - Vyuctovani sluzeb
 - Platby se zadavaji rucne pres aplikaci (zadne bankovni API / open banking).
+- Vyuctovani sluzeb je workflow modul, ktery je vazany na:
+  - najemnika (`tenant_id`)
+  - nemovitost (`property_id`)
+  - obdobi (`period_from`, `period_to`)
+  - polozky sluzeb + zalohy z plateb.
 
 ## Backend Agent Guidance
 ### Struktura (`backend/`)
@@ -104,6 +109,20 @@ backend/
   - `owner_id` se vzdy bere z `req.user.id` (nikdy z request body)
   - `status` se odvozuje z `due_date` + `paid_date` (`paid`, `pending`, `overdue`)
   - tenant/property ownership se validuje proti prihlasenemu uzivateli
+- Vyuctovani sluzeb (workflow vrstva):
+  - `GET /api/billing/settlements`
+  - `GET /api/billing/settlements/:id`
+  - `POST /api/billing/settlements`
+  - `PUT /api/billing/settlements/:id`
+  - `POST /api/billing/settlements/:id/calculate`
+  - stavy vyuctovani:
+    - `draft` (koncept)
+    - `calculated` (spocitano)
+    - `reviewed` (zkontrolovano)
+    - `exported` (exportovano)
+    - `sent` (odeslano)
+  - backend kontroluje vlastnictvi tenant/property pres `req.user.id`
+  - zalohy se pro vypocet berou deterministicky z tabulky `payments` (bez AI)
 
 ### Pridani noveho endpointu
 1. Definuj logiku v `backend/routes/`.
@@ -121,6 +140,10 @@ backend/
   - `SUPABASE_SERVICE_ROLE_KEY`
 - Operace CRUD pres oficialniho klienta `@supabase/supabase-js` v backend routach.
 - SQL pro prvni verzi plateb je v `backend/sql/2026-03-30-payments-v1.sql` (tabulka `payments`, indexy, trigger `updated_at`, RLS policies).
+- SQL pro workflow vyuctovani sluzeb je v `backend/sql/2026-04-13-utility-settlements-workflow.sql`:
+  - `utility_settlements`
+  - `utility_settlement_items`
+  - indexy + RLS policy pro owner-scoped pristup.
 
 ## Environment Variables & Secrets
 Kazda cast aplikace ma vlastni `.env` soubor pro lokalni vyvoj. Nikdy je necommituj.
@@ -144,3 +167,10 @@ SUPABASE_ANON_KEY=
 ```env
 VITE_API_URL=http://localhost:5000
 ```
+
+## Communication Preference
+- Pri kazdem kroku agent strucne vysvetli:
+  - co bude delat,
+  - proc to dela,
+  - co z vysledku vyplyva pro dalsi krok.
+- Nepsat pouze prikazy bez slovniho kontextu.

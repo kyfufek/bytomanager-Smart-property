@@ -8,6 +8,7 @@ const paymentsRouter = require('./routes/payments');
 const profileRoutes = require('./routes/profile');
 const aiChatRoutes = require('./routes/aiChat');
 const advancedBillingRoutes = require('./routes/advancedBilling');
+const utilitySettlementsRoutes = require('./routes/utilitySettlements');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -25,6 +26,7 @@ app.use('/api', profileRoutes);
 app.use('/api/payments', paymentsRouter);
 app.use('/api', aiChatRoutes);
 app.use('/api', advancedBillingRoutes);
+app.use('/api', utilitySettlementsRoutes);
 
 app.listen(port, () => {
   console.log(`Backend server is running on port ${port}`);
