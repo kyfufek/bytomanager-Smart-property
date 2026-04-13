@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Home, AlertTriangle, Plus, ReceiptText, TrendingUp, Users, RefreshCcw } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Building2,
+  CreditCard,
+  FileSpreadsheet,
+  Plus,
+  ReceiptText,
+  RefreshCcw,
+  Users,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,14 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DataState } from "@/components/product/DataState";
 import { PageHeader } from "@/components/product/PageHeader";
 import { apiFetch } from "@/lib/api";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 type PropertyApiItem = {
   id: number | string;
@@ -29,21 +32,50 @@ type TenantApiItem = {
   name: string;
   apartment: string;
   currentDebt: number;
+  payment_status?: "paid" | "pending" | "overdue" | "none";
+  payment_due_date?: string | null;
 };
 
 type PaymentApiItem = {
   id: number | string;
+  tenant_id: string;
+  amount: number;
   status: "paid" | "pending" | "overdue";
+  due_date: string;
+  paid_date: string | null;
 };
 
-const statusLabelMap: Record<string, string> = {
-  uhrazeno: "Zaplaceno",
-  "po splatnosti": "Po splatnosti",
-  "ceka na platbu": "Ceka na platbu",
+type SettlementApiItem = {
+  id: string;
+  status: "draft" | "calculated" | "reviewed" | "exported" | "sent";
+  result_type: "preplatek" | "nedoplatek" | "vyrovnano";
+  balance_total: number;
+  tenant_name?: string | null;
+  property_name?: string | null;
+  period_from: string;
+  period_to: string;
+  created_at: string;
 };
 
 function formatCurrency(value: number) {
-  return `${value.toLocaleString("cs-CZ")} Kc`;
+  return `${Number(value || 0).toLocaleString("cs-CZ")} Kc`;
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("cs-CZ");
+}
+
+function settlementStatusLabel(status: SettlementApiItem["status"]) {
+  return {
+    draft: "Koncept",
+    calculated: "Spocitano",
+    reviewed: "Zkontrolovano",
+    exported: "Exportovano",
+    sent: "Odeslano",
+  }[status];
 }
 
 export default function DashboardPage() {
@@ -51,6 +83,7 @@ export default function DashboardPage() {
   const [properties, setProperties] = useState<PropertyApiItem[]>([]);
   const [tenants, setTenants] = useState<TenantApiItem[]>([]);
   const [payments, setPayments] = useState<PaymentApiItem[]>([]);
+  const [settlements, setSettlements] = useState<SettlementApiItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -61,28 +94,34 @@ export default function DashboardPage() {
       setLoading(true);
       setError("");
 
-      const [propertiesRes, tenantsRes, paymentsRes] = await Promise.all([
+      const [propertiesRes, tenantsRes, paymentsRes, settlementsRes] = await Promise.all([
         apiFetch("/api/properties", { signal }),
         apiFetch("/api/tenants", { signal }),
         apiFetch("/api/payments", { signal }),
+        apiFetch("/api/billing/settlements", { signal }),
       ]);
 
-      if (!propertiesRes.ok || !tenantsRes.ok) {
+      if (!propertiesRes.ok || !tenantsRes.ok || !paymentsRes.ok) {
         throw new Error("Backend request failed");
       }
 
-      const [propertiesData, tenantsData] = await Promise.all([
+      const [propertiesData, tenantsData, paymentsData] = await Promise.all([
         propertiesRes.json() as Promise<PropertyApiItem[]>,
         tenantsRes.json() as Promise<TenantApiItem[]>,
+        paymentsRes.json() as Promise<PaymentApiItem[]>,
       ]);
-
-      const paymentsData = paymentsRes.ok
-        ? ((await paymentsRes.json()) as PaymentApiItem[])
-        : [];
 
       setProperties(propertiesData);
       setTenants(tenantsData);
       setPayments(paymentsData);
+
+      if (settlementsRes.ok) {
+        const settlementsData = (await settlementsRes.json()) as SettlementApiItem[];
+        setSettlements(settlementsData);
+      } else {
+        setSettlements([]);
+      }
+
       setLastUpdatedAt(new Date());
     } catch {
       if (signal?.aborted) return;
@@ -100,84 +139,78 @@ export default function DashboardPage() {
     return () => controller.abort();
   }, []);
 
+  const tenantNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    tenants.forEach((tenant) => map.set(String(tenant.id), tenant.name));
+    return map;
+  }, [tenants]);
+
   const kpis = useMemo(() => {
-    const totalRent = properties.reduce((sum, p) => sum + Number(p.rent || 0), 0);
-    const paidCount = properties.filter((p) => p.paymentStatus === "uhrazeno").length;
-    const debtTenants = tenants.filter((t) => Number(t.currentDebt || 0) > 0).length;
+    const monthlyRent = properties.reduce((sum, property) => sum + Number(property.rent || 0), 0);
+    const unpaidPayments = payments.filter((payment) => payment.status !== "paid").length;
+    const overdueTenants = tenants.filter((tenant) => {
+      const debt = Number(tenant.currentDebt || 0) > 0;
+      const overdue = tenant.payment_status === "overdue";
+      return debt || overdue;
+    }).length;
+    const activeSettlements = settlements.filter((settlement) => settlement.status !== "sent").length;
 
     return {
-      totalRent,
-      paidCount,
       propertiesCount: properties.length,
       tenantsCount: tenants.length,
-      debtTenants,
-      paidPayments: payments.filter((p) => p.status === "paid").length,
-      unpaidPayments: payments.filter((p) => p.status !== "paid").length,
+      monthlyRent,
+      unpaidPayments,
+      overdueTenants,
+      activeSettlements,
     };
-  }, [payments, properties, tenants]);
+  }, [payments, properties, settlements, tenants]);
 
-  const paymentRows = useMemo(() => {
-    return properties.map((property) => ({
-      key: property.id,
-      property: property.name,
-      event:
-        property.paymentStatus === "uhrazeno"
-          ? "Platba prijata"
-          : property.paymentStatus === "po splatnosti"
-            ? "Platba po splatnosti"
-            : "Ceka se na platbu",
-      status: property.paymentStatus,
-    }));
-  }, [properties]);
+  const recentPaidPayments = useMemo(() => {
+    return payments
+      .filter((payment) => payment.status === "paid")
+      .sort((a, b) => +new Date(b.paid_date ?? b.due_date) - +new Date(a.paid_date ?? a.due_date))
+      .slice(0, 5);
+  }, [payments]);
+
+  const overdueTenantRows = useMemo(() => {
+    return tenants
+      .filter((tenant) => tenant.payment_status === "overdue" || Number(tenant.currentDebt || 0) > 0)
+      .sort((a, b) => Number(b.currentDebt || 0) - Number(a.currentDebt || 0))
+      .slice(0, 6);
+  }, [tenants]);
+
+  const activeSettlementRows = useMemo(() => {
+    return settlements
+      .filter((settlement) => settlement.status !== "sent")
+      .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))
+      .slice(0, 5);
+  }, [settlements]);
 
   const alerts = useMemo(() => {
-    const unresolved = properties.filter((item) => item.paymentStatus !== "uhrazeno").length;
-    const debt = tenants.filter((item) => Number(item.currentDebt || 0) > 0).length;
-    const list: string[] = [];
+    const items: { tone: "danger" | "warning" | "neutral"; text: string }[] = [];
 
-    if (unresolved > 0) {
-      list.push(`${unresolved} nemovitosti cekaji na platbu nebo jsou po splatnosti.`);
+    if (kpis.overdueTenants > 0) {
+      items.push({ tone: "danger", text: `${kpis.overdueTenants} najemniku je po splatnosti nebo ma dluh.` });
     }
-    if (debt > 0) {
-      list.push(`${debt} najemniku ma evidovany dluh.`);
+    if (kpis.unpaidPayments > 0) {
+      items.push({ tone: "warning", text: `${kpis.unpaidPayments} plateb ceka na uhradu.` });
     }
-    if (list.length === 0) {
-      list.push("Vsechny sledovane platby jsou aktualne v poradku.");
+    if (kpis.activeSettlements > 0) {
+      items.push({ tone: "neutral", text: `${kpis.activeSettlements} vyuctovani je aktivnich (nedokoncenych).` });
+    }
+    if (items.length === 0) {
+      items.push({ tone: "neutral", text: "Aktualne nejsou zadna kriticka upozorneni." });
     }
 
-    return list;
-  }, [properties, tenants]);
-
-  const recentActivity = useMemo(() => {
-    const propertyEvents = properties.slice(0, 3).map((property) => ({
-      id: `property-${property.id}`,
-      title: property.name,
-      detail:
-        property.paymentStatus === "uhrazeno"
-          ? "Platba prijata"
-          : property.paymentStatus === "po splatnosti"
-            ? "Platba po splatnosti"
-            : "Ceka na platbu",
-    }));
-
-    const tenantEvents = tenants
-      .filter((tenant) => Number(tenant.currentDebt || 0) > 0)
-      .slice(0, 3)
-      .map((tenant) => ({
-        id: `tenant-${tenant.id}`,
-        title: tenant.name,
-        detail: `Evidovan dluh ${formatCurrency(Number(tenant.currentDebt || 0))}`,
-      }));
-
-    return [...tenantEvents, ...propertyEvents].slice(0, 5);
-  }, [properties, tenants]);
+    return items;
+  }, [kpis.activeSettlements, kpis.overdueTenants, kpis.unpaidPayments]);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
-        description="Prehled nemovitosti, najemniku a plateb na jednom miste."
-        actions={(
+        description="Aktualni stav plateb, najemniku a vyuctovani na jednom miste."
+        actions={
           <div className="flex items-center gap-2">
             {lastUpdatedAt ? (
               <span className="text-xs text-muted-foreground">
@@ -202,7 +235,7 @@ export default function DashboardPage() {
               {refreshing ? "Obnovuji..." : "Obnovit"}
             </Button>
           </div>
-        )}
+        }
       />
 
       {error && !loading ? (
@@ -215,9 +248,9 @@ export default function DashboardPage() {
         />
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {loading ? (
-          Array.from({ length: 4 }).map((_, index) => (
+          Array.from({ length: 6 }).map((_, index) => (
             <Card className="card-shadow" key={`kpi-skeleton-${index}`}>
               <CardContent className="p-5 space-y-3">
                 <Skeleton className="h-4 w-24" />
@@ -227,103 +260,88 @@ export default function DashboardPage() {
           ))
         ) : (
           <>
-            <Card className="card-shadow">
-              <CardContent className="p-5 flex items-center gap-3">
-                <Home className="h-6 w-6 text-primary" />
-                <div>
-                  <p className="text-sm text-muted-foreground">Nemovitosti</p>
-                  <p className="text-2xl font-bold">{kpis.propertiesCount}</p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="card-shadow">
-              <CardContent className="p-5 flex items-center gap-3">
-                <Users className="h-6 w-6 text-primary" />
-                <div>
-                  <p className="text-sm text-muted-foreground">Najemnici</p>
-                  <p className="text-2xl font-bold">{kpis.tenantsCount}</p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="card-shadow">
-              <CardContent className="p-5 flex items-center gap-3">
-                <TrendingUp className="h-6 w-6 text-success" />
-                <div>
-                  <p className="text-sm text-muted-foreground">Mesicni najem</p>
-                  <p className="text-2xl font-bold">{formatCurrency(kpis.totalRent)}</p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="card-shadow">
-              <CardContent className="p-5 flex items-center gap-3">
-                <AlertTriangle className="h-6 w-6 text-warning" />
-                <div>
-                  <p className="text-sm text-muted-foreground">Najemnici s dluhem</p>
-                  <p className="text-2xl font-bold">{kpis.debtTenants}</p>
-                </div>
-              </CardContent>
-            </Card>
+            <KpiCard icon={<Building2 className="h-5 w-5 text-primary" />} label="Nemovitosti" value={String(kpis.propertiesCount)} />
+            <KpiCard icon={<Users className="h-5 w-5 text-primary" />} label="Najemnici" value={String(kpis.tenantsCount)} />
+            <KpiCard icon={<CreditCard className="h-5 w-5 text-success" />} label="Mesicni najemne" value={formatCurrency(kpis.monthlyRent)} />
+            <KpiCard icon={<AlertTriangle className="h-5 w-5 text-warning" />} label="Neuhrazene platby" value={String(kpis.unpaidPayments)} />
+            <KpiCard icon={<Users className="h-5 w-5 text-destructive" />} label="Najemnici po splatnosti" value={String(kpis.overdueTenants)} />
+            <KpiCard icon={<FileSpreadsheet className="h-5 w-5 text-primary" />} label="Aktivni vyuctovani" value={String(kpis.activeSettlements)} />
           </>
         )}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="card-shadow lg:col-span-2">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Stav plateb podle nemovitosti</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="space-y-2">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <Skeleton key={`table-skeleton-${index}`} className="h-10 w-full" />
-                ))}
-              </div>
-            ) : paymentRows.length === 0 ? (
-              <DataState
-                title="Zatim nejsou zadna data plateb"
-                description="Jakmile pridate prvni nemovitosti a najemniky, objevi se zde souhrn plateb."
-                actionLabel="Pridat nemovitost"
-                onAction={() => navigate("/properties")}
-              />
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nemovitost</TableHead>
-                    <TableHead>Udalost</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paymentRows.map((row) => (
-                    <TableRow key={row.key}>
-                      <TableCell className="font-medium">{row.property}</TableCell>
-                      <TableCell>{row.event}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="secondary"
-                          className={
-                            row.status === "uhrazeno"
-                              ? "bg-success/10 text-success border-0"
-                              : row.status === "po splatnosti"
-                                ? "bg-destructive/10 text-destructive border-0"
-                                : "bg-warning/10 text-warning border-0"
-                          }
-                        >
-                          {statusLabelMap[row.status] ?? row.status}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
+      <div className="grid gap-4 xl:grid-cols-3">
+        <div className="space-y-4 xl:col-span-2">
+          <Card className="card-shadow">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Posledni prijate platby</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <Skeleton key={`paid-skeleton-${index}`} className="h-10 w-full" />
                   ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+                </div>
+              ) : recentPaidPayments.length === 0 ? (
+                <DataState
+                  title="Zatim nejsou zadne prijate platby"
+                  description="Jakmile bude prvni platba uhrazena, objevi se zde."
+                  actionLabel="Pridat platbu"
+                  onAction={() => navigate("/finance")}
+                />
+              ) : (
+                <div className="space-y-2">
+                  {recentPaidPayments.map((payment) => (
+                    <div key={String(payment.id)} className="flex items-center justify-between rounded-md border px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">{tenantNameMap.get(payment.tenant_id) || "Neznamy najemnik"}</p>
+                        <p className="text-xs text-muted-foreground">Uhrazeno: {formatDate(payment.paid_date)}</p>
+                      </div>
+                      <p className="text-sm font-semibold text-success">{formatCurrency(payment.amount)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="card-shadow">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Najemnici po splatnosti</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <Skeleton key={`overdue-skeleton-${index}`} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : overdueTenantRows.length === 0 ? (
+                <DataState
+                  title="Skvele, nikdo neni po splatnosti"
+                  description="Aktualne nejsou evidovani najemnici po splatnosti."
+                />
+              ) : (
+                <div className="space-y-2">
+                  {overdueTenantRows.map((tenant) => (
+                    <div key={String(tenant.id)} className="flex items-center justify-between rounded-md border px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">{tenant.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {tenant.apartment || "Bez bytu"} | splatnost: {formatDate(tenant.payment_due_date ?? null)}
+                        </p>
+                      </div>
+                      <Badge className={cn("border-0", Number(tenant.currentDebt || 0) > 0 ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning")}>
+                        {Number(tenant.currentDebt || 0) > 0 ? `Dluh ${formatCurrency(Number(tenant.currentDebt || 0))}` : "Po splatnosti"}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
         <div className="space-y-4">
           <Card className="card-shadow">
@@ -331,31 +349,10 @@ export default function DashboardPage() {
               <CardTitle className="text-base">Rychle akce</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Button className="w-full justify-between" variant="outline" onClick={() => navigate("/properties")}>
-                <span className="flex items-center gap-2">
-                  <Plus className="h-4 w-4" />
-                  Pridat nemovitost
-                </span>
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-              <Button className="w-full justify-between" variant="outline" onClick={() => navigate("/tenants")}>
-                <span className="flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  Sprava najemniku
-                </span>
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-              <Button
-                className="w-full justify-between"
-                variant="outline"
-                onClick={() => navigate("/finance/utility-billing")}
-              >
-                <span className="flex items-center gap-2">
-                  <ReceiptText className="h-4 w-4" />
-                  Vyuctovani sluzeb
-                </span>
-                <ArrowRight className="h-4 w-4" />
-              </Button>
+              <QuickAction icon={<Plus className="h-4 w-4" />} label="Pridat nemovitost" onClick={() => navigate("/properties")} />
+              <QuickAction icon={<Users className="h-4 w-4" />} label="Pridat najemnika" onClick={() => navigate("/tenants")} />
+              <QuickAction icon={<CreditCard className="h-4 w-4" />} label="Pridat platbu" onClick={() => navigate("/finance")} />
+              <QuickAction icon={<ReceiptText className="h-4 w-4" />} label="Vytvorit vyuctovani" onClick={() => navigate("/finance/utility-billing")} />
             </CardContent>
           </Card>
 
@@ -364,58 +361,85 @@ export default function DashboardPage() {
               <CardTitle className="text-base">Upozorneni</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              {alerts.map((item) => (
-                <div key={item} className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
-                  {item}
+              {alerts.map((item, index) => (
+                <div
+                  key={`alert-${index}`}
+                  className={cn(
+                    "rounded-md border px-3 py-2 text-sm",
+                    item.tone === "danger" && "border-destructive/30 bg-destructive/5",
+                    item.tone === "warning" && "border-warning/40 bg-warning/5",
+                    item.tone === "neutral" && "bg-muted/40",
+                  )}
+                >
+                  {item.text}
                 </div>
               ))}
+            </CardContent>
+          </Card>
+
+          <Card className="card-shadow">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Aktivni vyuctovani</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <Skeleton key={`settlement-skeleton-${index}`} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : activeSettlementRows.length === 0 ? (
+                <DataState
+                  title="Zatim nejsou aktivni vyuctovani"
+                  description="Prvni vyuctovani muzete vytvorit v modulu Vyuctovani sluzeb."
+                  actionLabel="Otevrit vyuctovani"
+                  onAction={() => navigate("/finance/utility-billing")}
+                />
+              ) : (
+                <div className="space-y-2">
+                  {activeSettlementRows.map((settlement) => (
+                    <div key={settlement.id} className="rounded-md border px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium truncate">{settlement.tenant_name || "Bez najemnika"}</p>
+                        <Badge variant="secondary">{settlementStatusLabel(settlement.status)}</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {formatDate(settlement.period_from)} - {formatDate(settlement.period_to)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
       </div>
-
-      <Card className="card-shadow">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Posledni aktivita</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <Skeleton key={`activity-skeleton-${index}`} className="h-12 w-full" />
-              ))}
-            </div>
-          ) : recentActivity.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aktivita se zobrazi po prvnich zmenach v datech.</p>
-          ) : (
-            <div className="space-y-2">
-              {recentActivity.map((item) => (
-                <div key={item.id} className="flex items-center justify-between rounded-md border px-3 py-2">
-                  <p className="text-sm font-medium">{item.title}</p>
-                  <p className="text-sm text-muted-foreground">{item.detail}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {!loading && !error && (
-          <Card className="card-shadow">
-            <CardContent className="p-5 flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Uhrazene nemovitosti</p>
-                <p className="text-xl font-semibold">
-                  {kpis.paidCount} / {kpis.propertiesCount}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Platby: {kpis.paidPayments} uhrazeno / {kpis.unpaidPayments} neuhrazeno
-                </p>
-              </div>
-              <Badge className="bg-primary/10 text-primary border-0">Live API</Badge>
-            </CardContent>
-          </Card>
-      )}
     </div>
+  );
+}
+
+function KpiCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <Card className="card-shadow">
+      <CardContent className="p-5 flex items-center gap-3">
+        <div className="shrink-0">{icon}</div>
+        <div>
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="text-2xl font-bold">{value}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function QuickAction({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+  return (
+    <Button className="w-full justify-between" variant="outline" onClick={onClick}>
+      <span className="flex items-center gap-2">
+        {icon}
+        {label}
+      </span>
+      <ArrowRight className="h-4 w-4" />
+    </Button>
   );
 }
