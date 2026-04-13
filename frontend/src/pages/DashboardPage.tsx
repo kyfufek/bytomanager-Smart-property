@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Home, AlertTriangle, Plus, ReceiptText, TrendingUp, Users } from "lucide-react";
+import { ArrowRight, Home, AlertTriangle, Plus, ReceiptText, TrendingUp, Users, RefreshCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,7 +52,9 @@ export default function DashboardPage() {
   const [tenants, setTenants] = useState<TenantApiItem[]>([]);
   const [payments, setPayments] = useState<PaymentApiItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   async function loadDashboardData(signal?: AbortSignal) {
     try {
@@ -81,6 +83,7 @@ export default function DashboardPage() {
       setProperties(propertiesData);
       setTenants(tenantsData);
       setPayments(paymentsData);
+      setLastUpdatedAt(new Date());
     } catch {
       if (signal?.aborted) return;
       setError("Data se nepodarilo nacist. Zkontrolujte pripojeni k backendu a zkuste to znovu.");
@@ -174,6 +177,32 @@ export default function DashboardPage() {
       <PageHeader
         title="Dashboard"
         description="Prehled nemovitosti, najemniku a plateb na jednom miste."
+        actions={(
+          <div className="flex items-center gap-2">
+            {lastUpdatedAt ? (
+              <span className="text-xs text-muted-foreground">
+                Aktualizovano: {lastUpdatedAt.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loading || refreshing}
+              onClick={async () => {
+                try {
+                  setRefreshing(true);
+                  await loadDashboardData();
+                } finally {
+                  setRefreshing(false);
+                }
+              }}
+            >
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              {refreshing ? "Obnovuji..." : "Obnovit"}
+            </Button>
+          </div>
+        )}
       />
 
       {error && !loading ? (

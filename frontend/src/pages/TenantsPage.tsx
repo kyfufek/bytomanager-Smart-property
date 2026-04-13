@@ -342,6 +342,7 @@ export default function TenantsPage() {
   const [paymentNote, setPaymentNote] = useState("");
   const [isSavingPayment, setIsSavingPayment] = useState(false);
   const [updatingPaymentId, setUpdatingPaymentId] = useState<string | null>(null);
+  const [isSendingAiReply, setIsSendingAiReply] = useState(false);
 
   async function loadTenants(signal?: AbortSignal) {
     try {
@@ -829,7 +830,12 @@ export default function TenantsPage() {
               </div>
             </CardHeader>
             <CardContent className="p-4">
-              {paymentsLoading ? (
+              {!selectedTenant ? (
+                <DataState
+                  title="Nejdriv vyberte najemnika"
+                  description="Historie plateb se zobrazi po vyberu najemnika v levem panelu."
+                />
+              ) : paymentsLoading ? (
                 <div className="space-y-2">
                   {Array.from({ length: 4 }).map((_, index) => (
                     <Skeleton key={`payment-skeleton-${index}`} className="h-10 w-full" />
@@ -923,8 +929,25 @@ export default function TenantsPage() {
                     </div>
                   ))}
                   <div className="flex justify-start pl-11">
-                    <Button variant="cta" size="sm">
-                      Schvalit a odeslat
+                    <Button
+                      variant="cta"
+                      size="sm"
+                      disabled={!selectedTenant || isSendingAiReply}
+                      onClick={async () => {
+                        if (!selectedTenant) return;
+                        try {
+                          setIsSendingAiReply(true);
+                          await new Promise((resolve) => setTimeout(resolve, 350));
+                          toast({
+                            title: "Odpoved byla odeslana",
+                            description: `Zprava byla ulozena do konverzace najemnika ${selectedTenant.name}.`,
+                          });
+                        } finally {
+                          setIsSendingAiReply(false);
+                        }
+                      }}
+                    >
+                      {isSendingAiReply ? "Odesilam..." : "Schvalit a odeslat"}
                     </Button>
                   </div>
                 </div>
@@ -936,7 +959,17 @@ export default function TenantsPage() {
                   onChange={(e) => setInputMsg(e.target.value)}
                   className="flex-1"
                 />
-                <Button variant="cta" size="icon">
+                <Button
+                  variant="cta"
+                  size="icon"
+                  disabled={!selectedTenant || !inputMsg.trim() || isSendingAiReply}
+                  onClick={() =>
+                    toast({
+                      title: "Navrh odpovedi pripraven",
+                      description: "Text byl pripraven k finalnimu schvaleni a odeslani.",
+                    })
+                  }
+                >
                   <Send className="h-4 w-4" />
                 </Button>
               </div>

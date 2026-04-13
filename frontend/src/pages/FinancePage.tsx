@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock3, Plus, AlertTriangle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { CheckCircle2, Clock3, Plus, AlertTriangle, RefreshCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,9 +61,11 @@ function formatCurrency(value: number) {
 }
 
 export default function FinancePage() {
+  const navigate = useNavigate();
   const [payments, setPayments] = useState<PaymentItem[]>([]);
   const [tenants, setTenants] = useState<TenantItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -233,82 +236,110 @@ export default function FinancePage() {
         title="Finance"
         description="Interni evidence plateb najemniku bez napojeni na banku."
         actions={
-          <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-            <DialogTrigger asChild>
-              <Button variant="cta">
-                <Plus className="mr-2 h-4 w-4" />
-                Pridat platbu
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nova platba</DialogTitle>
-              </DialogHeader>
-              <form className="space-y-4" onSubmit={handleCreatePayment}>
-                <div className="space-y-2">
-                  <Label htmlFor="finance-tenant">Najemnik</Label>
-                  <select
-                    id="finance-tenant"
-                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                    value={createTenantId}
-                    onChange={(e) => setCreateTenantId(e.target.value)}
-                  >
-                    <option value="">Vyber najemnika</option>
-                    {tenants.map((tenant) => (
-                      <option key={tenant.id} value={tenant.id}>
-                        {tenant.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="finance-amount">Castka</Label>
-                  <Input
-                    id="finance-amount"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={createAmount}
-                    onChange={(e) => setCreateAmount(e.target.value)}
-                    placeholder="15000"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="finance-due-date">Datum splatnosti</Label>
-                  <Input
-                    id="finance-due-date"
-                    type="date"
-                    value={createDueDate}
-                    onChange={(e) => setCreateDueDate(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="finance-paid-date">Datum uhrady (volitelne)</Label>
-                  <Input
-                    id="finance-paid-date"
-                    type="date"
-                    value={createPaidDate}
-                    onChange={(e) => setCreatePaidDate(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="finance-note">Poznamka</Label>
-                  <Input
-                    id="finance-note"
-                    value={createNote}
-                    onChange={(e) => setCreateNote(e.target.value)}
-                    placeholder="Volitelna poznamka"
-                  />
-                </div>
-                {createError ? <p className="text-xs text-destructive">{createError}</p> : null}
-                <Button type="submit" className="w-full" variant="cta" disabled={isCreating}>
-                  {isCreating ? "Ukladam..." : "Ulozit platbu"}
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loading || refreshing}
+              onClick={async () => {
+                try {
+                  setRefreshing(true);
+                  await loadFinance();
+                } finally {
+                  setRefreshing(false);
+                }
+              }}
+            >
+              <RefreshCcw className="mr-2 h-4 w-4" />
+              {refreshing ? "Obnovuji..." : "Obnovit"}
+            </Button>
+            <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+              <DialogTrigger asChild>
+                <Button variant="cta" disabled={!tenants.length}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Pridat platbu
                 </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Nova platba</DialogTitle>
+                </DialogHeader>
+                <form className="space-y-4" onSubmit={handleCreatePayment}>
+                  <div className="space-y-2">
+                    <Label htmlFor="finance-tenant">Najemnik</Label>
+                    <select
+                      id="finance-tenant"
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      value={createTenantId}
+                      onChange={(e) => setCreateTenantId(e.target.value)}
+                    >
+                      <option value="">Vyber najemnika</option>
+                      {tenants.map((tenant) => (
+                        <option key={tenant.id} value={tenant.id}>
+                          {tenant.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="finance-amount">Castka</Label>
+                    <Input
+                      id="finance-amount"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={createAmount}
+                      onChange={(e) => setCreateAmount(e.target.value)}
+                      placeholder="15000"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="finance-due-date">Datum splatnosti</Label>
+                    <Input
+                      id="finance-due-date"
+                      type="date"
+                      value={createDueDate}
+                      onChange={(e) => setCreateDueDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="finance-paid-date">Datum uhrady (volitelne)</Label>
+                    <Input
+                      id="finance-paid-date"
+                      type="date"
+                      value={createPaidDate}
+                      onChange={(e) => setCreatePaidDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="finance-note">Poznamka</Label>
+                    <Input
+                      id="finance-note"
+                      value={createNote}
+                      onChange={(e) => setCreateNote(e.target.value)}
+                      placeholder="Volitelna poznamka"
+                    />
+                  </div>
+                  {createError ? <p className="text-xs text-destructive">{createError}</p> : null}
+                  <Button type="submit" className="w-full" variant="cta" disabled={isCreating}>
+                    {isCreating ? "Ukladam..." : "Ulozit platbu"}
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
         }
       />
+
+      {!loading && !tenants.length ? (
+        <DataState
+          title="Nejsou dostupni zadni najemnici"
+          description="Nejprve vytvorte najemnika, potom budete moci evidovat platby."
+          actionLabel="Prejit na najemniky"
+          onAction={() => navigate("/tenants")}
+        />
+      ) : null}
 
       {error && !loading ? (
         <DataState

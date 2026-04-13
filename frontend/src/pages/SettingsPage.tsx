@@ -19,6 +19,7 @@ type ProfileResponse = {
   id: string;
   full_name: string | null;
   phone: string | null;
+  phone_supported?: boolean;
   email: string | null;
 };
 
@@ -31,6 +32,9 @@ export default function SettingsPage() {
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [isPhoneSupported, setIsPhoneSupported] = useState(true);
+  const [initialProfileSnapshot, setInitialProfileSnapshot] = useState({ fullName: "", phone: "" });
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
 
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [aiSuggestions, setAiSuggestions] = useState(true);
@@ -73,10 +77,13 @@ export default function SettingsPage() {
       const resolvedName = data.full_name ?? "";
       const resolvedPhone = data.phone ?? "";
       const resolvedEmail = data.email ?? initialEmail;
+      const phoneSupported = data.phone_supported !== false;
 
       setFullName(resolvedName);
       setPhone(resolvedPhone);
       setEmail(resolvedEmail);
+      setIsPhoneSupported(phoneSupported);
+      setInitialProfileSnapshot({ fullName: resolvedName, phone: resolvedPhone });
       await syncAuthDisplayName(resolvedName);
     } catch {
       if (signal?.aborted) return;
@@ -105,7 +112,7 @@ export default function SettingsPage() {
         method: "PUT",
         body: JSON.stringify({
           full_name: fullName,
-          phone,
+          phone: isPhoneSupported ? phone : null,
         }),
       });
 
@@ -115,14 +122,20 @@ export default function SettingsPage() {
 
       const data = (await response.json()) as ProfileResponse;
       const resolvedName = data.full_name ?? "";
+      const phoneSupported = data.phone_supported !== false;
       setFullName(resolvedName);
-      setPhone(data.phone ?? "");
+      setPhone(phoneSupported ? (data.phone ?? "") : "");
       setEmail(data.email ?? initialEmail);
+      setIsPhoneSupported(phoneSupported);
+      setInitialProfileSnapshot({ fullName: resolvedName, phone: phoneSupported ? (data.phone ?? "") : "" });
+      setLastSavedAt(new Date());
       await syncAuthDisplayName(resolvedName);
 
       toast({
         title: "Profil ulozen",
-        description: "Jmeno a telefon byly uspesne aktualizovany.",
+        description: phoneSupported
+          ? "Jmeno a telefon byly uspesne aktualizovany."
+          : "Jmeno bylo uspesne aktualizovano.",
       });
     } catch {
       toast({
@@ -169,7 +182,14 @@ export default function SettingsPage() {
 
       <Card className="card-shadow">
         <CardHeader>
-          <CardTitle className="text-base">Profil</CardTitle>
+          <CardTitle className="text-base flex items-center justify-between gap-2">
+            <span>Profil</span>
+            {lastSavedAt ? (
+              <Badge variant="secondary" className="bg-success/10 text-success border-0">
+                Ulozeno v {lastSavedAt.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}
+              </Badge>
+            ) : null}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {isLoadingProfile ? (
@@ -197,10 +217,28 @@ export default function SettingsPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="settings-phone">Telefon</Label>
-                <Input id="settings-phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                <Input
+                  id="settings-phone"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  disabled={!isPhoneSupported}
+                />
+                {!isPhoneSupported ? (
+                  <p className="text-xs text-muted-foreground">
+                    Telefon zatim nelze ulozit, protoze databaze neobsahuje sloupec <code>phone</code> v tabulce <code>profiles</code>.
+                  </p>
+                ) : null}
               </div>
-              <Button variant="cta" onClick={handleSaveProfile} disabled={isSavingProfile}>
-                {isSavingProfile ? "Ukladam..." : "Ulozit zmeny"}
+              <Button
+                variant="cta"
+                onClick={handleSaveProfile}
+                disabled={isSavingProfile || (fullName === initialProfileSnapshot.fullName && phone === initialProfileSnapshot.phone)}
+              >
+                {isSavingProfile
+                  ? "Ukladam..."
+                  : fullName === initialProfileSnapshot.fullName && phone === initialProfileSnapshot.phone
+                    ? "Beze zmen"
+                    : "Ulozit zmeny"}
               </Button>
             </>
           )}

@@ -75,6 +75,12 @@ export default function PropertiesPage() {
     };
   }
 
+  const summary = {
+    total: properties.length,
+    monthlyRent: properties.reduce((sum, item) => sum + Number(item.rent ?? 0), 0),
+    unresolved: properties.filter((item) => item.paymentStatus !== "uhrazeno").length,
+  };
+
   function openCreateDialog() {
     setEditingId(null);
     resetForm();
@@ -322,6 +328,29 @@ export default function PropertiesPage() {
         />
       ) : null}
 
+      {!loading && !error ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Card className="card-shadow">
+            <CardContent className="p-5">
+              <p className="text-sm text-muted-foreground">Nemovitosti celkem</p>
+              <p className="mt-1 text-2xl font-bold">{summary.total}</p>
+            </CardContent>
+          </Card>
+          <Card className="card-shadow">
+            <CardContent className="p-5">
+              <p className="text-sm text-muted-foreground">Mesicni najemne</p>
+              <p className="mt-1 text-2xl font-bold">{summary.monthlyRent.toLocaleString("cs-CZ")} Kc</p>
+            </CardContent>
+          </Card>
+          <Card className="card-shadow">
+            <CardContent className="p-5">
+              <p className="text-sm text-muted-foreground">Vyžaduje kontrolu</p>
+              <p className="mt-1 text-2xl font-bold text-warning">{summary.unresolved}</p>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {loading
           ? Array.from({ length: 4 }).map((_, index) => (
@@ -354,10 +383,16 @@ export default function PropertiesPage() {
                       className={
                         property.paymentStatus === "uhrazeno"
                           ? "bg-success/10 text-success border-0"
-                          : "bg-destructive/10 text-destructive border-0"
+                          : property.paymentStatus === "po splatnosti"
+                            ? "bg-destructive/10 text-destructive border-0"
+                            : "bg-warning/10 text-warning border-0"
                       }
                     >
-                      {property.paymentStatus === "uhrazeno" ? "Zaplaceno" : "Dluh"}
+                      {property.paymentStatus === "uhrazeno"
+                        ? "Zaplaceno"
+                        : property.paymentStatus === "po splatnosti"
+                          ? "Po splatnosti"
+                          : "Ceka na platbu"}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
