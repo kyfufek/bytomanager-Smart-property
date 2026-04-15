@@ -538,6 +538,46 @@ export default function UtilityBillingPage() {
             </button>
           </div>
 
+          <Card className="card-shadow">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">PDF export vyuctovani</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Generovani formalniho PDF je dostupne z formalni casti workflow.</p>
+                <p className="text-sm text-muted-foreground">
+                  {!canPersistSettlements
+                    ? "PDF export zatim neni dostupny, protoze formalni settlement cast ceka na backend nebo databazove schema."
+                    : !selectedId
+                      ? "Nejprve ulozte nebo otevrete konkretni formalni vyuctovani. Potom muzete PDF export spustit."
+                      : "Po stisku tlacitka se formalni vyuctovani oznaci jako exportovane a pripravi se na dokumentovy vystup."}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  disabled={!canPersistSettlements}
+                  onClick={() => {
+                    setMode("formal");
+                    setActiveTab("export");
+                  }}
+                >
+                  Otevrit export
+                </Button>
+                <Button
+                  variant="cta"
+                  disabled={saving || !selectedId || !canPersistSettlements}
+                  onClick={() => {
+                    setMode("formal");
+                    void updateStatus("exported");
+                  }}
+                >
+                  Generovat PDF
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           {settlementsError ? <DataState variant="error" title="Formalni cast zatim neni plne dostupna" description={settlementsError} /> : null}
 
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as BillingTab)}>

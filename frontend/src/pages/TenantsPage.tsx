@@ -756,48 +756,55 @@ export default function TenantsPage() {
 
         <div className="lg:col-span-3 flex flex-col gap-4">
           <Card className="card-shadow">
-            <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <Avatar className="h-10 w-10 shrink-0">
-                  <AvatarFallback className="bg-primary/10 text-primary text-sm">
-                    {selectedTenant?.initials ?? "--"}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
-                  <p className="font-semibold truncate">{selectedTenant?.name ?? "Neni vybran najemnik"}</p>
-                  <p className="text-sm text-muted-foreground truncate">{selectedTenant?.unit ?? "-"}</p>
-                  {selectedTenant ? (
-                    <PrescribedRent propertyId={selectedTenant.propertyId} rent={selectedTenant.propertyRent} />
-                  ) : null}
-                  {selectedTenant ? (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Stav platby: {paymentStatusLabels[selectedTenant.paymentStatus]}
-                      {selectedTenant.paymentStatus === "paid"
-                        ? `, zaplaceno ${selectedTenant.paymentAmountPaid.toLocaleString("cs-CZ")} Kc (${formatDate(selectedTenant.paymentPaidDate)})`
-                        : selectedTenant.hasPaymentHistory
-                          ? `, k uhrade ${selectedTenant.paymentAmountDue.toLocaleString("cs-CZ")} Kc (splatnost ${formatDate(selectedTenant.paymentDueDate)})`
-                          : ", zatim bez plateb"}
-                    </p>
-                  ) : null}
+            <CardContent className="space-y-4 p-4">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <Avatar className="h-10 w-10 shrink-0">
+                    <AvatarFallback className="bg-primary/10 text-primary text-sm">
+                      {selectedTenant?.initials ?? "--"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <p className="font-semibold truncate">{selectedTenant?.name ?? "Neni vybran najemnik"}</p>
+                    <p className="text-sm text-muted-foreground truncate">{selectedTenant?.unit ?? "-"}</p>
+                    {selectedTenant ? (
+                      <PrescribedRent propertyId={selectedTenant.propertyId} rent={selectedTenant.propertyRent} />
+                    ) : null}
+                    {selectedTenant ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Stav platby: {paymentStatusLabels[selectedTenant.paymentStatus]}
+                        {selectedTenant.paymentStatus === "paid"
+                          ? `, zaplaceno ${selectedTenant.paymentAmountPaid.toLocaleString("cs-CZ")} Kc (${formatDate(selectedTenant.paymentPaidDate)})`
+                          : selectedTenant.hasPaymentHistory
+                            ? `, k uhrade ${selectedTenant.paymentAmountDue.toLocaleString("cs-CZ")} Kc (splatnost ${formatDate(selectedTenant.paymentDueDate)})`
+                            : ", zatim bez plateb"}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <DepositHealthBar deposit={selectedTenant?.deposit ?? 0} debt={selectedTenant?.debt ?? 0} />
+                </div>
+
+                <div className="flex flex-wrap gap-2 xl:justify-end">
+                  {selectedTenant ? <ContractSettingsModal tenant={selectedTenant} /> : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleDeleteTenant}
+                    disabled={!selectedTenant || deletingId === selectedTenant?.id}
+                  >
+                    {deletingId === selectedTenant?.id ? "Mazani..." : "Smazat najemnika"}
+                  </Button>
                 </div>
               </div>
-              <div className="grid flex-1 gap-2 md:grid-cols-3">
+
+              <div className="grid gap-2 md:grid-cols-3">
                 <SummaryMetric label="Platebni stav" value={paymentSummary.statusText} tone={selectedTenant?.paymentStatus === "overdue" ? "danger" : selectedTenant?.paymentStatus === "paid" ? "success" : "default"} />
                 <SummaryMetric label="Platebni castka" value={paymentSummary.amountText} />
-                <SummaryMetric label="Historie" value={paymentSummary.historyText} />
+                <SummaryMetric label="Historie plateb" value={paymentSummary.historyText} />
               </div>
-              <div className="flex-1">
-                <DepositHealthBar deposit={selectedTenant?.deposit ?? 0} debt={selectedTenant?.debt ?? 0} />
-              </div>
-              {selectedTenant ? <ContractSettingsModal tenant={selectedTenant} /> : null}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleDeleteTenant}
-                disabled={!selectedTenant || deletingId === selectedTenant?.id}
-              >
-                {deletingId === selectedTenant?.id ? "Mazani..." : "Smazat najemnika"}
-              </Button>
             </CardContent>
           </Card>
 
