@@ -87,6 +87,19 @@ Slozka obsahuje standardni Vite/React strukturu vytvorenou nastrojem Lovable. Zm
   - nemovitost (`property_id`)
   - obdobi (`period_from`, `period_to`)
   - polozky sluzeb + zalohy z plateb.
+- Modul Vyuctovani sluzeb rozlisuje:
+  - operativni mesicni prehled zaloh / plateb / stavu uhrady
+  - formalni vyuctovani za zuctovaci obdobi
+- Formalni zuctovaci obdobi ma maximalni delku 12 mesicu.
+- Formalni vyuctovani ma obsahovat:
+  - najemnika a nemovitost / jednotku
+  - zuctovaci obdobi
+  - sluzby po polozkach
+  - skutecne naklady
+  - prijate zalohy
+  - rozdily po polozkach
+  - celkovy preplatek / nedoplatek
+  - workflow stav a navazne datumy
 
 ## Backend Agent Guidance
 ### Struktura (`backend/`)
@@ -115,6 +128,7 @@ backend/
   - `POST /api/billing/settlements`
   - `PUT /api/billing/settlements/:id`
   - `POST /api/billing/settlements/:id/calculate`
+  - `period_from` + `period_to` musi tvorit zuctovaci obdobi o max. delce 12 mesicu
   - stavy vyuctovani:
     - `draft` (koncept)
     - `calculated` (spocitano)
@@ -130,9 +144,7 @@ backend/
 3. Pri DB operacich pouzij `try/catch` a vrat srozumitelny HTTP status + chybu.
 4. Pokud endpoint pouziva LLM, volej pouze `backend/services/llm` (nikdy ne provider API primo).
 
-### Chatbot prompt
-- System prompt pro chatbot je v `backend/chatbot-instructions.md`.
-- Nacita se pri startu backendu a backend ho necte z disku pri kazdem requestu.
+### Chatbot prompt disku pri kazdem requestu.
 
 ## Database (Supabase) Guidance
 - Pripojeni pres:

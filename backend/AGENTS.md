@@ -56,3 +56,26 @@ Pokud pridas novou funkci, endpoint nebo zmenis strukturu projektu, aktualizuj p
   - `pending`: nema `paid_date` a `due_date` jeste nenastalo
 - Sdilena logika validace/normalizace plateb je v `backend/services/payments/paymentUtils.js`.
 - SQL schema + RLS pro payments je v `backend/sql/2026-03-30-payments-v1.sql`.
+
+## Vyuctovani sluzeb workflow
+
+- API:
+  - `GET /api/billing/settlements`
+  - `GET /api/billing/settlements/:id`
+  - `POST /api/billing/settlements`
+  - `PUT /api/billing/settlements/:id`
+  - `POST /api/billing/settlements/:id/calculate`
+- Modul rozlisuje:
+  - operativni prehled zaloh / plateb / stavu uhrady
+  - formalni vyuctovani za zuctovaci obdobi
+- Formalni vyuctovani:
+  - je vzdy navazane na `tenant_id` a `property_id`
+  - pouziva `period_from` a `period_to`
+  - musi mit zuctovaci obdobi o max. delce 12 mesicu
+  - pocita `advances_total`, `actual_cost_total`, `balance_total`, `result_type` deterministicky bez AI
+- Workflow stavy:
+  - `draft`
+  - `calculated`
+  - `reviewed`
+  - `exported`
+  - `sent`

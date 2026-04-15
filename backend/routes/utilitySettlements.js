@@ -7,6 +7,7 @@ const router = express.Router();
 router.use(requireAuth);
 
 const ALLOWED_STATUSES = ['draft', 'calculated', 'reviewed', 'exported', 'sent'];
+const MAX_PERIOD_MONTHS = 12;
 const STATUS_STEPS = {
   draft: 0,
   calculated: 1,
@@ -28,6 +29,30 @@ function isValidDateInput(value) {
 function normalizeDate(value) {
   if (!isValidDateInput(value)) return null;
   return new Date(value).toISOString().slice(0, 10);
+}
+
+function countInclusiveMonths(periodFrom, periodTo) {
+  const from = new Date(`${periodFrom}T00:00:00.000Z`);
+  const to = new Date(`${periodTo}T00:00:00.000Z`);
+  return ((to.getUTCFullYear() - from.getUTCFullYear()) * 12)
+    + (to.getUTCMonth() - from.getUTCMonth())
+    + 1;
+}
+
+function validateSettlementPeriod(periodFrom, periodTo) {
+  if (!periodFrom || !periodTo) {
+    return 'tenant_id, period_from a period_to jsou povinne.';
+  }
+
+  if (periodTo < periodFrom) {
+    return 'period_to musi byt >= period_from.';
+  }
+
+  if (countInclusiveMonths(periodFrom, periodTo) > MAX_PERIOD_MONTHS) {
+    return 'Zuctovaci obdobi muze mit maximalne 12 mesicu.';
+  }
+
+  return null;
 }
 
 function resultTypeFromBalance(balance) {
@@ -177,11 +202,9 @@ router.post('/billing/settlements', async (req, res) => {
     const notes = typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null;
     const items = Array.isArray(body.items) ? body.items : [];
 
-    if (!tenantId || !periodFrom || !periodTo) {
-      return res.status(400).json({ error: 'tenant_id, period_from a period_to jsou povinne.' });
-    }
-    if (periodTo < periodFrom) {
-      return res.status(400).json({ error: 'period_to musi byt >= period_from.' });
+    const periodError = validateSettlementPeriod(periodFrom, periodTo);
+    if (periodError) {
+      return res.status(400).json({ error: periodError });
     }
 
     const ownership = await ensureTenantAndPropertyOwnership(req.user.id, tenantId, propertyId);
@@ -248,23 +271,37 @@ router.put('/billing/settlements/:id', async (req, res) => {
       return res.status(400).json({ error: 'Status cannot move backwards.' });
     }
 
+    const nextPeriodFrom = body.period_from ? normalizeDate(body.period_from) : existing.period_from;
+    const nextPeriodTo = body.period_to ? normalizeDate(body.period_to) : existing.period_to;
+    const periodError = validateSettlementPeriod(nextPeriodFrom, nextPeriodTo);
+    if (periodError) {
+      return res.status(400).json({ error: periodError });
+    }
+
+    const normalizedItems = Array.isArray(body.items)
+      ? body.items.map(normalizeItem).filter((item) => item.service_name)
+      : (existing.items || []).map((item, index) => normalizeItem(item, index)).filter((item) => item.service_name);
+    const advancesPaid = await computeAdvancesPaid(req.user.id, existing.tenant_id, nextPeriodFrom, nextPeriodTo);
+    const actualCostTotal = normalizedItems.reduce((sum, item) => sum + toNumber(item.actual_cost), 0);
+    const balanceTotal = advancesPaid - actualCostTotal;
+
     const patch = {
+      advances_total: advancesPaid,
+      actual_cost_total: actualCostTotal,
+      balance_total: balanceTotal,
+      result_type: resultTypeFromBalance(balanceTotal),
       updated_at: new Date().toISOString(),
     };
 
     if (typeof body.title === 'string') patch.title = body.title.trim() || null;
     if (typeof body.notes === 'string') patch.notes = body.notes.trim() || null;
-    if (body.period_from) patch.period_from = normalizeDate(body.period_from);
-    if (body.period_to) patch.period_to = normalizeDate(body.period_to);
+    if (body.period_from) patch.period_from = nextPeriodFrom;
+    if (body.period_to) patch.period_to = nextPeriodTo;
     if (nextStatus) patch.status = nextStatus;
     if (nextStatus === 'calculated') patch.calculated_at = new Date().toISOString();
     if (nextStatus === 'reviewed') patch.reviewed_at = new Date().toISOString();
     if (nextStatus === 'exported') patch.exported_at = new Date().toISOString();
     if (nextStatus === 'sent') patch.sent_at = new Date().toISOString();
-
-    if (patch.period_from && patch.period_to && patch.period_to < patch.period_from) {
-      return res.status(400).json({ error: 'period_to musi byt >= period_from.' });
-    }
 
     const { error: updateError } = await supabase
       .from('utility_settlements')
@@ -275,7 +312,6 @@ router.put('/billing/settlements/:id', async (req, res) => {
     if (updateError) return res.status(500).json({ error: 'Failed to update settlement.', details: updateError.message });
 
     if (Array.isArray(body.items)) {
-      const normalizedItems = body.items.map(normalizeItem).filter((item) => item.service_name);
       const { error: deleteError } = await supabase
         .from('utility_settlement_items')
         .delete()

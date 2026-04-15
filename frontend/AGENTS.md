@@ -59,3 +59,27 @@ Pokud pridas novou funkci, endpoint nebo zmenis strukturu projektu, aktualizuj p
 - `PageHeader` pouzivej pro jednotny titulek + popis + volitelne akce.
 - `DataState` pouzivej pro `empty/error` stavy seznamu nebo datovych sekci.
 - Pro user feedback po akcich (vytvoreni/uprava/smazani/ulozeni) pouzivej toast z `src/hooks/use-toast.ts`.
+
+## Vyuctovani sluzeb UX pravidla
+
+- Stranka `UtilityBillingPage.tsx` rozdeluje modul na:
+  - `Prehled`
+  - `Prubezne zalohy a platby`
+  - `Vyuctovani podle obdobi`
+  - `Detail vyuctovani`
+  - `Podklady / namitky / stav`
+  - `Export / doruceni`
+- Rozlisuj:
+  - operativni mesicni prehled plateb a zaloh bez pravni finality
+  - formalni vyuctovani za zuctovaci obdobi max. 12 mesicu
+- Pro formalni cast vzdy zobraz:
+  - najemnika
+  - nemovitost / jednotku
+  - zuctovaci obdobi
+  - sluzby po polozkach
+  - prijate zalohy
+  - skutecne naklady
+  - rozdily
+  - celkovy vysledek
+  - workflow stav
+- Pokud settlement backend nebo DB schema neni dostupne, stranka ma zachovat funkcni operativni cast a formalni cast zobrazit jako rizeny error state.
