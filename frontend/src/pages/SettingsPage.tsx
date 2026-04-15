@@ -167,7 +167,7 @@ export default function SettingsPage() {
       <PageHeader
         title="Nastaveni"
         description="Sprava uctu, notifikaci a bezpecnostnich voleb."
-        actions={<Badge className="bg-primary/10 text-primary border-0">Lokalni nastaveni</Badge>}
+        actions={<Badge className="bg-primary/10 text-primary border-0">Profil / notifikace / bezpecnost</Badge>}
       />
 
       {loadError && !isLoadingProfile ? (
@@ -192,6 +192,9 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+            Profil pouzivame pro identitu vlastnika uctu a kontaktni udaje, ktere se propisuji do dalsich casti aplikace.
+          </div>
           {isLoadingProfile ? (
             <div className="space-y-4">
               <Skeleton className="h-10 w-full" />
@@ -237,7 +240,7 @@ export default function SettingsPage() {
                 {isSavingProfile
                   ? "Ukladam..."
                   : fullName === initialProfileSnapshot.fullName && phone === initialProfileSnapshot.phone
-                    ? "Beze zmen"
+                    ? "Beze zmen k ulozeni"
                     : "Ulozit zmeny"}
               </Button>
             </>
@@ -253,6 +256,9 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+            Nastavte si, jak chcete byt upozornovani na udalosti v najmech, platbach a AI doporucenich.
+          </div>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium">E-mailove notifikace</p>
@@ -277,7 +283,7 @@ export default function SettingsPage() {
             <Switch checked={smsNotifications} onCheckedChange={setSmsNotifications} />
           </div>
           <Button variant="outline" onClick={handleSaveNotifications}>
-            Ulozit preference
+            Ulozit preference notifikaci
           </Button>
         </CardContent>
       </Card>
@@ -290,6 +296,9 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+            Tato cast slouzi pro jistotu pristupu k uctu. Kriticke bezpecnostni funkce je vhodne dokoncit pri produkcnim auth flow.
+          </div>
           <div className="rounded-md border bg-muted/40 p-3">
             <p className="text-sm font-medium">Posledni prihlaseni</p>
             <p className="text-xs text-muted-foreground mt-1">Dnes, 09:24, Chrome na Windows</p>
@@ -299,7 +308,7 @@ export default function SettingsPage() {
             <p className="text-xs text-muted-foreground mt-1">Doporuceno zapnout po napojeni produkcniho auth flow.</p>
           </div>
           <Button variant="outline" onClick={handleRevokeSessions}>
-            Odhlasit vsechny relace
+            Odhlasit vsechny ostatni relace
           </Button>
         </CardContent>
       </Card>

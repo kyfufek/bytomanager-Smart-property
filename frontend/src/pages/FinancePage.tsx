@@ -35,6 +35,8 @@ type PaymentItem = {
 type TenantItem = {
   id: string;
   name: string;
+  apartment?: string | null;
+  property_rent?: number;
 };
 
 const statusLabelMap: Record<PaymentStatus, string> = {
@@ -210,6 +212,12 @@ export default function FinancePage() {
     return map;
   }, [tenants]);
 
+  const tenantUnitMap = useMemo(() => {
+    const map = new Map<string, string>();
+    tenants.forEach((tenant) => map.set(tenant.id, tenant.apartment ?? "-"));
+    return map;
+  }, [tenants]);
+
   const kpis = useMemo(() => {
     const paidCount = payments.filter((item) => item.status === "paid").length;
     const pendingCount = payments.filter((item) => item.status === "pending").length;
@@ -234,7 +242,7 @@ export default function FinancePage() {
     <div className="space-y-6">
       <PageHeader
         title="Finance"
-        description="Interni evidence plateb najemniku bez napojeni na banku."
+        description="Cista evidence plateb s navaznosti na najemniky a jednotky, bez bankovni integrace."
         actions={
           <div className="flex items-center gap-2">
             <Button
@@ -422,6 +430,7 @@ export default function FinancePage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Najemnik</TableHead>
+                  <TableHead>Jednotka</TableHead>
                   <TableHead>Castka</TableHead>
                   <TableHead>Splatnost</TableHead>
                   <TableHead>Uhrazeno</TableHead>
@@ -430,42 +439,52 @@ export default function FinancePage() {
                   <TableHead className="text-right">Akce</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {payments.map((payment) => (
-                  <TableRow key={payment.id}>
-                    <TableCell>{tenantNameMap.get(payment.tenant_id) || "Neznamy najemnik"}</TableCell>
-                    <TableCell>{formatCurrency(payment.amount)}</TableCell>
-                    <TableCell>{formatDate(payment.due_date)}</TableCell>
-                    <TableCell>{formatDate(payment.paid_date)}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary" className={statusClassName(payment.status)}>
-                        {statusLabelMap[payment.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{payment.note || "-"}</TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={payment.status === "paid" || updatingPaymentId === payment.id}
-                        onClick={() => handleMarkPaid(payment.id)}
-                      >
-                        {updatingPaymentId === payment.id ? (
-                          "Ukladam..."
-                        ) : payment.status === "paid" ? (
-                          <>
-                            <CheckCircle2 className="h-4 w-4 mr-1" />
-                            Uhrazeno
-                          </>
-                        ) : (
-                          "Oznacit jako zaplaceno"
-                        )}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
+                  <TableBody>
+                    {payments.map((payment) => (
+                      <TableRow key={payment.id}>
+                        <TableCell>
+                          <button type="button" onClick={() => navigate(`/tenants?tenantId=${payment.tenant_id}`)} className="text-left font-medium transition-colors hover:text-primary">
+                            {tenantNameMap.get(payment.tenant_id) || "Neznamy najemnik"}
+                          </button>
+                        </TableCell>
+                        <TableCell>{tenantUnitMap.get(payment.tenant_id) || "-"}</TableCell>
+                        <TableCell>{formatCurrency(payment.amount)}</TableCell>
+                        <TableCell>{formatDate(payment.due_date)}</TableCell>
+                        <TableCell>{formatDate(payment.paid_date)}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className={statusClassName(payment.status)}>
+                            {statusLabelMap[payment.status]}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{payment.note || "-"}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button type="button" size="sm" variant="ghost" onClick={() => navigate(`/tenants?tenantId=${payment.tenant_id}`)}>
+                              Detail najemnika
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={payment.status === "paid" || updatingPaymentId === payment.id}
+                              onClick={() => handleMarkPaid(payment.id)}
+                            >
+                              {updatingPaymentId === payment.id ? (
+                                "Ukladam..."
+                              ) : payment.status === "paid" ? (
+                                <>
+                                  <CheckCircle2 className="h-4 w-4 mr-1" />
+                                  Uhrazeno
+                                </>
+                              ) : (
+                                "Oznacit jako zaplaceno"
+                              )}
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
             </Table>
           )}
         </CardContent>

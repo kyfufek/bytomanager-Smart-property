@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 type WorkflowStatus = "draft" | "calculated" | "reviewed" | "exported" | "sent";
 type ResultType = "preplatek" | "nedoplatek" | "vyrovnano";
 type BillingTab = "prehled" | "zalohy" | "obdobi" | "detail" | "podklady" | "export";
+type BillingMode = "operations" | "formal";
 type HistoryStatusFilter = WorkflowStatus | "all";
 
 type TenantItem = { id: string; full_name: string; property_id: string | null };
@@ -159,6 +160,7 @@ function resultToneClass(result: ResultType) {
 
 export default function UtilityBillingPage() {
   const [activeTab, setActiveTab] = useState<BillingTab>("prehled");
+  const [mode, setMode] = useState<BillingMode>("operations");
   const [tenants, setTenants] = useState<TenantItem[]>([]);
   const [properties, setProperties] = useState<PropertyItem[]>([]);
   const [payments, setPayments] = useState<PaymentItem[]>([]);
@@ -353,6 +355,7 @@ export default function UtilityBillingPage() {
       setNotes(detail.notes ?? "");
       setItems(detail.items?.length ? detail.items : baseItems);
 
+      setMode("formal");
       if (openDetailTab) setActiveTab("detail");
     } catch {
       toast({ title: "Detail se nepodarilo nacist", description: "Zkuste otevrit vyuctovani znovu.", variant: "destructive" });
@@ -389,6 +392,7 @@ export default function UtilityBillingPage() {
       setSelected(detail);
       setItems(detail.items?.length ? detail.items : normalizeSettlementItems(items));
       await reloadSettlementHistory(detail.id);
+      setMode("formal");
       setActiveTab("detail");
       toast({ title: "Formalni vyuctovani ulozeno", description: `Aktualni stav: ${statusLabel(detail.status)}.` });
     } catch {
@@ -417,6 +421,7 @@ export default function UtilityBillingPage() {
       setSelected(detail);
       setItems(detail.items?.length ? detail.items : items);
       await reloadSettlementHistory(detail.id);
+      setMode("formal");
       toast({ title: "Vyuctovani spocitano", description: `${resultLabel(detail.result_type)} ${formatCurrency(Math.abs(detail.balance_total))}` });
     } catch {
       toast({ title: "Vypocet selhal", description: "Nejprve ulozte koncept a doplnte sluzby nebo zkontrolujte backend.", variant: "destructive" });
@@ -435,6 +440,7 @@ export default function UtilityBillingPage() {
     const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
     setPeriodFrom(from.toISOString().slice(0, 10));
     setPeriodTo(to.toISOString().slice(0, 10));
+    setMode("operations");
     setActiveTab("zalohy");
   }
 
@@ -444,6 +450,7 @@ export default function UtilityBillingPage() {
     const to = new Date(Date.UTC(now.getUTCFullYear(), 11, 31));
     setPeriodFrom(from.toISOString().slice(0, 10));
     setPeriodTo(to.toISOString().slice(0, 10));
+    setMode("formal");
     setActiveTab("obdobi");
   }
 
@@ -460,7 +467,7 @@ export default function UtilityBillingPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Vyuctovani sluzeb" description="Oddeleny operativni prehled zaloh a plateb od formalniho vyuctovani za zuctovaci obdobi." />
+      <PageHeader title="Vyuctovani sluzeb" description="Jasne oddeleny provozni monitoring zaloh od formalniho workflow vyuctovani za zuctovaci obdobi." />
       {error ? <DataState variant="error" title="Chyba nacitani" description={error} actionLabel="Nacist znovu" onAction={loadAll} /> : null}
       {!error ? (
         <>
@@ -510,16 +517,44 @@ export default function UtilityBillingPage() {
             </CardContent>
           </Card>
 
+          <div className="grid gap-4 lg:grid-cols-2">
+            <button type="button" onClick={() => { setMode("operations"); setActiveTab("zalohy"); }} className={cn("rounded-xl border p-4 text-left transition-colors", mode === "operations" ? "border-primary bg-primary/5" : "bg-muted/20 hover:bg-accent")}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Operativni mesicni prehled</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Interni monitoring predepsanych zaloh, uhrazenych plateb a stavu uhrady bez finalniho dokumentoveho vystupu.</p>
+                </div>
+                <Badge variant="secondary">Interni provoz</Badge>
+              </div>
+            </button>
+            <button type="button" onClick={() => { if (canPersistSettlements) { setMode("formal"); setActiveTab("obdobi"); } }} className={cn("rounded-xl border p-4 text-left transition-colors", mode === "formal" ? "border-primary bg-primary/5" : "bg-muted/20 hover:bg-accent", !canPersistSettlements && "cursor-not-allowed opacity-70")}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Formalni vyuctovani za obdobi</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Workflow od konceptu po odeslani se sluzbami, skutecnymi naklady, prijatymi zalohami a konecnym preplatkem nebo nedoplatkem.</p>
+                </div>
+                <Badge variant="secondary" className={canPersistSettlements ? "bg-primary/10 text-primary" : "bg-warning/10 text-warning"}>{canPersistSettlements ? "Workflow" : "Beta / ceka na DB"}</Badge>
+              </div>
+            </button>
+          </div>
+
           {settlementsError ? <DataState variant="error" title="Formalni cast zatim neni plne dostupna" description={settlementsError} /> : null}
 
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as BillingTab)}>
             <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-transparent p-0">
-              <TabsTrigger value="prehled">Prehled</TabsTrigger>
-              <TabsTrigger value="zalohy">Prubezne zalohy a platby</TabsTrigger>
-              <TabsTrigger value="obdobi">Vyuctovani podle obdobi</TabsTrigger>
-              <TabsTrigger value="detail">Detail vyuctovani</TabsTrigger>
-              <TabsTrigger value="podklady">Podklady / namitky / stav</TabsTrigger>
-              <TabsTrigger value="export">Export / doruceni</TabsTrigger>
+              {mode === "operations" ? (
+                <>
+                  <TabsTrigger value="prehled">Prehled</TabsTrigger>
+                  <TabsTrigger value="zalohy">Prubezne zalohy a platby</TabsTrigger>
+                </>
+              ) : (
+                <>
+                  <TabsTrigger value="obdobi">Vyuctovani podle obdobi</TabsTrigger>
+                  <TabsTrigger value="detail">Detail vyuctovani</TabsTrigger>
+                  <TabsTrigger value="podklady">Podklady / namitky / stav</TabsTrigger>
+                  <TabsTrigger value="export">Export / doruceni</TabsTrigger>
+                </>
+              )}
             </TabsList>
 
             <TabsContent value="prehled" className="space-y-4">

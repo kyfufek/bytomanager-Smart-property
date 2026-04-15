@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Building, MapPin, Pencil, Plus } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Building, CalendarClock, FileSpreadsheet, MapPin, Pencil, Plus, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,6 +17,7 @@ import { DataState } from "@/components/product/DataState";
 import { PageHeader } from "@/components/product/PageHeader";
 import { toast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 type PropertyApiItem = {
   id: number | string;
@@ -30,9 +31,24 @@ type PropertyApiItem = {
   paymentStatus: string;
 };
 
+type TenantApiItem = {
+  id: string;
+  property_id?: string | null;
+  payment_status?: "paid" | "pending" | "overdue" | "none";
+};
+
+type SettlementApiItem = {
+  id: string;
+  property_id: string;
+  status: "draft" | "calculated" | "reviewed" | "exported" | "sent";
+  created_at: string;
+};
+
 export default function PropertiesPage() {
   const [open, setOpen] = useState(false);
   const [properties, setProperties] = useState<PropertyApiItem[]>([]);
+  const [tenants, setTenants] = useState<TenantApiItem[]>([]);
+  const [settlements, setSettlements] = useState<SettlementApiItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -81,6 +97,31 @@ export default function PropertiesPage() {
     unresolved: properties.filter((item) => item.paymentStatus !== "uhrazeno").length,
   };
 
+  const propertyInsights = useMemo(() => {
+    const map = new Map<string, { activeTenants: number; paymentState: string; settlementsState: string; lastActivity: string }>();
+
+    properties.forEach((property) => {
+      const propertyId = String(property.id);
+      const propertyTenants = tenants.filter((tenant) => String(tenant.property_id ?? "") === propertyId);
+      const propertySettlements = settlements.filter((settlement) => String(settlement.property_id) === propertyId);
+      const overdueCount = propertyTenants.filter((tenant) => tenant.payment_status === "overdue").length;
+      const pendingCount = propertyTenants.filter((tenant) => tenant.payment_status === "pending").length;
+      const activeSettlements = propertySettlements.filter((settlement) => settlement.status !== "sent").length;
+      const lastActivityDate = propertySettlements
+        .map((settlement) => settlement.created_at)
+        .sort((a, b) => +new Date(b) - +new Date(a))[0] ?? null;
+
+      map.set(propertyId, {
+        activeTenants: propertyTenants.length,
+        paymentState: overdueCount > 0 ? `${overdueCount} po splatnosti` : pendingCount > 0 ? `${pendingCount} ceka na uhradu` : propertyTenants.length > 0 ? "Platby v poradku" : "Bez najemniku",
+        settlementsState: activeSettlements > 0 ? `${activeSettlements} aktivni` : propertySettlements.length > 0 ? "Historie existuje" : "Zatim bez vyuctovani",
+        lastActivity: lastActivityDate ? new Date(lastActivityDate).toLocaleDateString("cs-CZ") : "Bez aktivity",
+      });
+    });
+
+    return map;
+  }, [properties, settlements, tenants]);
+
   function openCreateDialog() {
     setEditingId(null);
     resetForm();
@@ -113,13 +154,26 @@ export default function PropertiesPage() {
       setLoading(true);
       setError("");
 
-      const response = await apiFetch("/api/properties", { signal });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      const [propertiesRes, tenantsRes, settlementsRes] = await Promise.all([
+        apiFetch("/api/properties", { signal }),
+        apiFetch("/api/tenants", { signal }),
+        apiFetch("/api/billing/settlements", { signal }),
+      ]);
+      if (!propertiesRes.ok || !tenantsRes.ok) {
+        throw new Error(`HTTP ${propertiesRes.status}`);
       }
 
-      const data = (await response.json()) as PropertyApiItem[];
-      setProperties(data.map(normalizeProperty));
+      const [propertiesData, tenantsData] = await Promise.all([
+        propertiesRes.json() as Promise<PropertyApiItem[]>,
+        tenantsRes.json() as Promise<TenantApiItem[]>,
+      ]);
+      setProperties(propertiesData.map(normalizeProperty));
+      setTenants(tenantsData);
+      if (settlementsRes.ok) {
+        setSettlements((await settlementsRes.json()) as SettlementApiItem[]);
+      } else {
+        setSettlements([]);
+      }
     } catch {
       if (signal?.aborted) {
         return;
@@ -409,6 +463,12 @@ export default function PropertiesPage() {
                       {Number(property.rent ?? 0).toLocaleString("cs-CZ")} Kc
                     </span>
                   </div>
+                  <div className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm">
+                    <InsightRow icon={<Users className="h-3.5 w-3.5" />} label="Aktivni najemnici" value={String(propertyInsights.get(String(property.id))?.activeTenants ?? 0)} />
+                    <InsightRow icon={<Building className="h-3.5 w-3.5" />} label="Stav plateb" value={propertyInsights.get(String(property.id))?.paymentState ?? "Bez dat"} />
+                    <InsightRow icon={<FileSpreadsheet className="h-3.5 w-3.5" />} label="Vyuctovani" value={propertyInsights.get(String(property.id))?.settlementsState ?? "Bez dat"} />
+                    <InsightRow icon={<CalendarClock className="h-3.5 w-3.5" />} label="Posledni aktivita" value={propertyInsights.get(String(property.id))?.lastActivity ?? "Bez aktivity"} />
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <Button type="button" variant="outline" size="sm" onClick={() => openEditDialog(property)}>
                       <Pencil className="mr-2 h-4 w-4" />
@@ -437,6 +497,18 @@ export default function PropertiesPage() {
           onAction={openCreateDialog}
         />
       ) : null}
+    </div>
+  );
+}
+
+function InsightRow({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <span className="shrink-0">{icon}</span>
+        <span>{label}</span>
+      </div>
+      <span className={cn("text-right font-medium", value.includes("po splatnosti") && "text-destructive")}>{value}</span>
     </div>
   );
 }

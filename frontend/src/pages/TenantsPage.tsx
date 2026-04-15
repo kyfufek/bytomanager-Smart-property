@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Bot, FileWarning, FileX, Mail, Send, Settings, Shield, User } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -320,6 +321,8 @@ function EscalationAutoPilot() {
 }
 
 export default function TenantsPage() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [tenants, setTenants] = useState<TenantViewModel[]>([]);
   const [properties, setProperties] = useState<PropertyOption[]>([]);
   const [selectedTenant, setSelectedTenant] = useState<TenantViewModel | null>(null);
@@ -598,12 +601,40 @@ export default function TenantsPage() {
   }
 
   const headerName = useMemo(() => selectedTenant?.name ?? "-", [selectedTenant]);
+  const paymentSummary = useMemo(() => {
+    if (!selectedTenant) {
+      return { statusText: "Vyberte najemnika", amountText: "-", dueText: "-", historyText: "Bez dat" };
+    }
+
+    const statusText = paymentStatusLabels[selectedTenant.paymentStatus];
+    const amountText = selectedTenant.paymentStatus === "paid"
+      ? `${selectedTenant.paymentAmountPaid.toLocaleString("cs-CZ")} Kc uhrazeno`
+      : `${selectedTenant.paymentAmountDue.toLocaleString("cs-CZ")} Kc k uhrade`;
+    const dueText = selectedTenant.hasPaymentHistory ? formatDate(selectedTenant.paymentDueDate) : "Bez evidovane splatnosti";
+    const historyText = selectedTenant.hasPaymentHistory ? `${payments.length} zaznamu v historii` : "Historie plateb zatim nevznikla";
+
+    return { statusText, amountText, dueText, historyText };
+  }, [payments.length, selectedTenant]);
+
+  useEffect(() => {
+    const tenantId = searchParams.get("tenantId");
+    if (!tenantId || !tenants.length) return;
+    const match = tenants.find((tenant) => tenant.id === tenantId);
+    if (match) {
+      setSelectedTenant(match);
+    }
+  }, [searchParams, tenants]);
+
+  function handleSelectTenant(tenant: TenantViewModel) {
+    setSelectedTenant(tenant);
+    setSearchParams({ tenantId: tenant.id });
+  }
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Najemnici a AI komunikace"
-        description="Sprava najemniku, plateb, kauce a eskalacniho auto-pilota."
+        title="Najemnici a komunikace"
+        description="Prioritou je platebni stav, historie a operativni prace s najemnikem. Automatizace zustava jako sekundarni podpora."
         actions={
           <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
             <DialogTrigger asChild>
@@ -686,7 +717,7 @@ export default function TenantsPage() {
                   tenants.map((tenant) => (
                     <button
                       key={tenant.id}
-                      onClick={() => setSelectedTenant(tenant)}
+                      onClick={() => handleSelectTenant(tenant)}
                       className={`w-full flex flex-col gap-2 rounded-lg p-3 text-left transition-colors ${
                         selectedTenant?.id === tenant.id ? "bg-sidebar-accent" : "hover:bg-accent"
                       }`}
@@ -750,6 +781,11 @@ export default function TenantsPage() {
                   ) : null}
                 </div>
               </div>
+              <div className="grid flex-1 gap-2 md:grid-cols-3">
+                <SummaryMetric label="Platebni stav" value={paymentSummary.statusText} tone={selectedTenant?.paymentStatus === "overdue" ? "danger" : selectedTenant?.paymentStatus === "paid" ? "success" : "default"} />
+                <SummaryMetric label="Platebni castka" value={paymentSummary.amountText} />
+                <SummaryMetric label="Historie" value={paymentSummary.historyText} />
+              </div>
               <div className="flex-1">
                 <DepositHealthBar deposit={selectedTenant?.deposit ?? 0} debt={selectedTenant?.debt ?? 0} />
               </div>
@@ -765,68 +801,50 @@ export default function TenantsPage() {
             </CardContent>
           </Card>
 
-          <EscalationAutoPilot />
-
           <Card className="card-shadow">
             <CardHeader className="pb-3 border-b">
               <div className="flex items-center justify-between gap-3">
                 <CardTitle className="text-base">Historie plateb</CardTitle>
-                <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
-                  <DialogTrigger asChild>
-                    <Button variant="cta" size="sm" disabled={!selectedTenant}>
-                      Pridat platbu
+                <div className="flex items-center gap-2">
+                  {selectedTenant ? (
+                    <Button variant="outline" size="sm" onClick={() => navigate("/finance")}>
+                      Otevrit finance
                     </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Pridat platbu</DialogTitle>
-                    </DialogHeader>
-                    <form className="space-y-4" onSubmit={handleCreatePayment}>
-                      <div className="space-y-2">
-                        <Label htmlFor="payment-amount">Castka</Label>
-                        <Input
-                          id="payment-amount"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={paymentAmount}
-                          onChange={(e) => setPaymentAmount(e.target.value)}
-                          placeholder="15000"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="payment-due-date">Datum splatnosti</Label>
-                        <Input
-                          id="payment-due-date"
-                          type="date"
-                          value={paymentDueDate}
-                          onChange={(e) => setPaymentDueDate(e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="payment-paid-date">Datum uhrady (volitelne)</Label>
-                        <Input
-                          id="payment-paid-date"
-                          type="date"
-                          value={paymentPaidDate}
-                          onChange={(e) => setPaymentPaidDate(e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="payment-note">Poznamka</Label>
-                        <Input
-                          id="payment-note"
-                          value={paymentNote}
-                          onChange={(e) => setPaymentNote(e.target.value)}
-                          placeholder="Volitelna poznamka"
-                        />
-                      </div>
-                      <Button type="submit" variant="cta" className="w-full" disabled={isSavingPayment}>
-                        {isSavingPayment ? "Ukladam..." : "Ulozit platbu"}
+                  ) : null}
+                  <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="cta" size="sm" disabled={!selectedTenant}>
+                        Pridat platbu
                       </Button>
-                    </form>
-                  </DialogContent>
-                </Dialog>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Pridat platbu</DialogTitle>
+                      </DialogHeader>
+                      <form className="space-y-4" onSubmit={handleCreatePayment}>
+                        <div className="space-y-2">
+                          <Label htmlFor="payment-amount">Castka</Label>
+                          <Input id="payment-amount" type="number" min="0" step="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="15000" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="payment-due-date">Datum splatnosti</Label>
+                          <Input id="payment-due-date" type="date" value={paymentDueDate} onChange={(e) => setPaymentDueDate(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="payment-paid-date">Datum uhrady (volitelne)</Label>
+                          <Input id="payment-paid-date" type="date" value={paymentPaidDate} onChange={(e) => setPaymentPaidDate(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="payment-note">Poznamka</Label>
+                          <Input id="payment-note" value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} placeholder="Volitelna poznamka" />
+                        </div>
+                        <Button type="submit" variant="cta" className="w-full" disabled={isSavingPayment}>
+                          {isSavingPayment ? "Ukladam..." : "Ulozit platbu"}
+                        </Button>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-4">
@@ -849,7 +867,13 @@ export default function TenantsPage() {
                   description="Po ulozeni prvni platby se historie zobrazi zde."
                 />
               ) : (
-                <div className="overflow-x-auto">
+                <div className="space-y-3">
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <SummaryMetric label="Posledni splatnost" value={paymentSummary.dueText} />
+                    <SummaryMetric label="Platebni vysledek" value={paymentSummary.amountText} tone={selectedTenant?.paymentStatus === "overdue" ? "danger" : selectedTenant?.paymentStatus === "paid" ? "success" : "default"} />
+                    <SummaryMetric label="Stav evidence" value={paymentSummary.historyText} />
+                  </div>
+                  <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left border-b">
@@ -892,6 +916,7 @@ export default function TenantsPage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -907,6 +932,9 @@ export default function TenantsPage() {
             <CardContent className="flex-1 flex flex-col p-0">
               <ScrollArea className="flex-1 p-4">
                 <div className="space-y-4">
+                  <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+                    Chat slouzi pro rychle pravni nebo komunikacni navrhy k vybranemu najemnikovi. Odeslani zustava pod lidskou kontrolou.
+                  </div>
                   {mockMessages.map((msg) => (
                     <div key={msg.id} className={`flex gap-3 ${msg.from === "ai" ? "" : "justify-end"}`}>
                       {msg.from === "ai" ? (
@@ -977,6 +1005,25 @@ export default function TenantsPage() {
           </Card>
         </div>
       </div>
+
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-base font-semibold">Auto-Pilot / Eskalacni proces</h2>
+          <p className="text-sm text-muted-foreground">
+            Sekundarni vrstva pro budouci automatizaci pripominek a eskalace. Hlavni praci s najemnikem a platbami resi sekce vys.
+          </p>
+        </div>
+        <EscalationAutoPilot />
+      </div>
+    </div>
+  );
+}
+
+function SummaryMetric({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "success" | "danger" }) {
+  return (
+    <div className="rounded-md border bg-muted/30 px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={tone === "danger" ? "text-sm font-medium text-destructive" : tone === "success" ? "text-sm font-medium text-success" : "text-sm font-medium"}>{value}</p>
     </div>
   );
 }

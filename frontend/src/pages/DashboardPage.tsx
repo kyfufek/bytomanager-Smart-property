@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -260,18 +260,29 @@ export default function DashboardPage() {
           ))
         ) : (
           <>
-            <KpiCard icon={<Building2 className="h-5 w-5 text-primary" />} label="Nemovitosti" value={String(kpis.propertiesCount)} />
-            <KpiCard icon={<Users className="h-5 w-5 text-primary" />} label="Najemnici" value={String(kpis.tenantsCount)} />
-            <KpiCard icon={<CreditCard className="h-5 w-5 text-success" />} label="Mesicni najemne" value={formatCurrency(kpis.monthlyRent)} />
-            <KpiCard icon={<AlertTriangle className="h-5 w-5 text-warning" />} label="Neuhrazene platby" value={String(kpis.unpaidPayments)} />
-            <KpiCard icon={<Users className="h-5 w-5 text-destructive" />} label="Najemnici po splatnosti" value={String(kpis.overdueTenants)} />
-            <KpiCard icon={<FileSpreadsheet className="h-5 w-5 text-primary" />} label="Aktivni vyuctovani" value={String(kpis.activeSettlements)} />
+            <KpiCard icon={<Building2 className="h-5 w-5 text-primary" />} label="Nemovitosti" value={String(kpis.propertiesCount)} hint="Prejit do spravy portfolia" onClick={() => navigate("/properties")} />
+            <KpiCard icon={<Users className="h-5 w-5 text-primary" />} label="Najemnici" value={String(kpis.tenantsCount)} hint="Otevrit detail najemniku" onClick={() => navigate("/tenants")} />
+            <KpiCard icon={<CreditCard className="h-5 w-5 text-success" />} label="Mesicni najemne" value={formatCurrency(kpis.monthlyRent)} hint="Zkontrolovat platebni tok" onClick={() => navigate("/finance")} />
+            <KpiCard icon={<AlertTriangle className="h-5 w-5 text-warning" />} label="Neuhrazene platby" value={String(kpis.unpaidPayments)} hint="Vyresit ve financich" onClick={() => navigate("/finance")} />
+            <KpiCard icon={<Users className="h-5 w-5 text-destructive" />} label="Najemnici po splatnosti" value={String(kpis.overdueTenants)} hint="Prejit na rizikove najemniky" onClick={() => navigate("/tenants")} />
+            <KpiCard icon={<FileSpreadsheet className="h-5 w-5 text-primary" />} label="Aktivni vyuctovani" value={String(kpis.activeSettlements)} hint="Otevrit modul vyuctovani" onClick={() => navigate("/finance/utility-billing")} />
           </>
         )}
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="space-y-4 xl:col-span-2">
+          <Card className="card-shadow">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Akcni rozcestnik</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 md:grid-cols-3">
+              <QuickAction icon={<Users className="h-4 w-4" />} label="Rizikovi najemnici" description="Dluhy, po splatnosti a posledni stav plateb." onClick={() => navigate("/tenants")} />
+              <QuickAction icon={<CreditCard className="h-4 w-4" />} label="Finance a platby" description="Historie plateb, neuhrazene castky a manualni evidence." onClick={() => navigate("/finance")} />
+              <QuickAction icon={<ReceiptText className="h-4 w-4" />} label="Vyuctovani sluzeb" description="Operativni zalohy i formalni workflow za obdobi." onClick={() => navigate("/finance/utility-billing")} />
+            </CardContent>
+          </Card>
+
           <Card className="card-shadow">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Posledni prijate platby</CardTitle>
@@ -293,13 +304,18 @@ export default function DashboardPage() {
               ) : (
                 <div className="space-y-2">
                   {recentPaidPayments.map((payment) => (
-                    <div key={String(payment.id)} className="flex items-center justify-between rounded-md border px-3 py-2">
+                    <button
+                      key={String(payment.id)}
+                      type="button"
+                      onClick={() => navigate(`/tenants?tenantId=${payment.tenant_id}`)}
+                      className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent"
+                    >
                       <div>
                         <p className="text-sm font-medium">{tenantNameMap.get(payment.tenant_id) || "Neznamy najemnik"}</p>
                         <p className="text-xs text-muted-foreground">Uhrazeno: {formatDate(payment.paid_date)}</p>
                       </div>
                       <p className="text-sm font-semibold text-success">{formatCurrency(payment.amount)}</p>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -325,7 +341,12 @@ export default function DashboardPage() {
               ) : (
                 <div className="space-y-2">
                   {overdueTenantRows.map((tenant) => (
-                    <div key={String(tenant.id)} className="flex items-center justify-between rounded-md border px-3 py-2">
+                    <button
+                      key={String(tenant.id)}
+                      type="button"
+                      onClick={() => navigate(`/tenants?tenantId=${tenant.id}`)}
+                      className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent"
+                    >
                       <div>
                         <p className="text-sm font-medium">{tenant.name}</p>
                         <p className="text-xs text-muted-foreground">
@@ -335,7 +356,7 @@ export default function DashboardPage() {
                       <Badge className={cn("border-0", Number(tenant.currentDebt || 0) > 0 ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning")}>
                         {Number(tenant.currentDebt || 0) > 0 ? `Dluh ${formatCurrency(Number(tenant.currentDebt || 0))}` : "Po splatnosti"}
                       </Badge>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -349,10 +370,10 @@ export default function DashboardPage() {
               <CardTitle className="text-base">Rychle akce</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <QuickAction icon={<Plus className="h-4 w-4" />} label="Pridat nemovitost" onClick={() => navigate("/properties")} />
-              <QuickAction icon={<Users className="h-4 w-4" />} label="Pridat najemnika" onClick={() => navigate("/tenants")} />
-              <QuickAction icon={<CreditCard className="h-4 w-4" />} label="Pridat platbu" onClick={() => navigate("/finance")} />
-              <QuickAction icon={<ReceiptText className="h-4 w-4" />} label="Vytvorit vyuctovani" onClick={() => navigate("/finance/utility-billing")} />
+              <QuickAction icon={<Plus className="h-4 w-4" />} label="Pridat nemovitost" description="Zalozit novou jednotku nebo byt do portfolia." onClick={() => navigate("/properties")} />
+              <QuickAction icon={<Users className="h-4 w-4" />} label="Pridat najemnika" description="Priradit najemnika k jednotce a zalozit evidenci." onClick={() => navigate("/tenants")} />
+              <QuickAction icon={<CreditCard className="h-4 w-4" />} label="Pridat platbu" description="Zapsat prijatou nebo planovanou platbu." onClick={() => navigate("/finance")} />
+              <QuickAction icon={<ReceiptText className="h-4 w-4" />} label="Vytvorit vyuctovani" description="Otevrit modul zaloh a formalniho vyuctovani." onClick={() => navigate("/finance/utility-billing")} />
             </CardContent>
           </Card>
 
@@ -398,7 +419,7 @@ export default function DashboardPage() {
               ) : (
                 <div className="space-y-2">
                   {activeSettlementRows.map((settlement) => (
-                    <div key={settlement.id} className="rounded-md border px-3 py-2">
+                    <button key={settlement.id} type="button" onClick={() => navigate("/finance/utility-billing")} className="w-full rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-medium truncate">{settlement.tenant_name || "Bez najemnika"}</p>
                         <Badge variant="secondary">{settlementStatusLabel(settlement.status)}</Badge>
@@ -406,7 +427,7 @@ export default function DashboardPage() {
                       <p className="text-xs text-muted-foreground mt-1">
                         {formatDate(settlement.period_from)} - {formatDate(settlement.period_to)}
                       </p>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -418,26 +439,32 @@ export default function DashboardPage() {
   );
 }
 
-function KpiCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function KpiCard({ icon, label, value, hint, onClick }: { icon: ReactNode; label: string; value: string; hint: string; onClick: () => void }) {
   return (
-    <Card className="card-shadow">
-      <CardContent className="p-5 flex items-center gap-3">
-        <div className="shrink-0">{icon}</div>
-        <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="text-2xl font-bold">{value}</p>
-        </div>
-      </CardContent>
-    </Card>
+    <button type="button" onClick={onClick} className="text-left">
+      <Card className="card-shadow transition-colors hover:bg-accent">
+        <CardContent className="p-5 flex items-center gap-3">
+          <div className="shrink-0">{icon}</div>
+          <div>
+            <p className="text-sm text-muted-foreground">{label}</p>
+            <p className="text-2xl font-bold">{value}</p>
+            <p className="text-xs text-muted-foreground">{hint}</p>
+          </div>
+        </CardContent>
+      </Card>
+    </button>
   );
 }
 
-function QuickAction({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+function QuickAction({ icon, label, description, onClick }: { icon: ReactNode; label: string; description: string; onClick: () => void }) {
   return (
-    <Button className="w-full justify-between" variant="outline" onClick={onClick}>
-      <span className="flex items-center gap-2">
-        {icon}
-        {label}
+    <Button className="h-auto w-full justify-between py-3" variant="outline" onClick={onClick}>
+      <span className="flex min-w-0 items-start gap-2 text-left">
+        <div className="shrink-0">{icon}</div>
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">{label}</span>
+          <span className="block text-xs text-muted-foreground">{description}</span>
+        </span>
       </span>
       <ArrowRight className="h-4 w-4" />
     </Button>
