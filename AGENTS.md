@@ -155,6 +155,8 @@ backend/
 - SQL pro workflow vyuctovani sluzeb je v `backend/sql/2026-04-13-utility-settlements-workflow.sql`:
   - `utility_settlements`
   - `utility_settlement_items`
+  - polozky vyuctovani mohou obsahovat i `allocation_method` (`persons`, `area`, `meter`, `fixed`) pro zpusob rozuctovani
+  - zalohy pro settlement se musi filtrovat podle `owner_id`, `tenant_id`, `property_id` a zuctovaciho obdobi, nikdy ne globalne
   - indexy + RLS policy pro owner-scoped pristup.
 
 ## Environment Variables & Secrets
