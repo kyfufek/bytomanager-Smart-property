@@ -128,6 +128,7 @@ export default function UtilityBillingPage() {
   const selectedProperty = useMemo(() => properties.find((property) => property.id === propertyId) ?? null, [properties, propertyId]);
   const canPersistSettlements = !settlementsError;
   const periodError = getPeriodError(periodFrom, periodTo);
+  const inlinePeriodError = periodFrom || periodTo ? periodError : null;
 
   const paymentsInPeriod = useMemo(() => {
     return payments.filter((payment) => {
@@ -148,6 +149,8 @@ export default function UtilityBillingPage() {
   const actualTotal = useMemo(() => items.reduce((sum, item) => sum + Number(item.actual_cost || 0), 0), [items]);
   const balance = computedAdvances - actualTotal;
   const resultType: ResultType = Math.abs(balance) < 1 ? "vyrovnano" : balance >= 0 ? "preplatek" : "nedoplatek";
+  const activeTenantName = selectedTenant?.full_name ?? "-";
+  const activePropertyName = selectedProperty?.name ?? "-";
 
   const filteredHistory = useMemo(() => {
     return history.filter((settlement) => historyStatusFilter === "all" || settlement.status === historyStatusFilter);
@@ -213,8 +216,8 @@ export default function UtilityBillingPage() {
         </head>
         <body>
           <h1>${title || "Vyuctovani sluzeb"}</h1>
-          <p><strong>Najemnik:</strong> ${selected?.tenant_name ?? selectedTenant?.full_name ?? "-"}</p>
-          <p><strong>Nemovitost / jednotka:</strong> ${selected?.property_name ?? selectedProperty?.name ?? "-"}</p>
+          <p><strong>Najemnik:</strong> ${activeTenantName}</p>
+          <p><strong>Nemovitost / jednotka:</strong> ${activePropertyName}</p>
           <p><strong>Zuctovaci obdobi:</strong> ${formatDate(periodFrom)} - ${formatDate(periodTo)}</p>
           <p><strong>Datum vystaveni:</strong> ${formatDate(issueDate)}</p>
           <p><strong>Termin vyporadani:</strong> ${formatDate(settlementDueDate)}</p>
@@ -234,9 +237,9 @@ export default function UtilityBillingPage() {
           </table>
 
           <div class="grid summary">
-            <div class="box"><strong>Prijate zalohy</strong><p>${formatCurrency(selected?.advances_total ?? computedAdvances)}</p></div>
-            <div class="box"><strong>Skutecne naklady</strong><p>${formatCurrency(selected?.actual_cost_total ?? actualTotal)}</p></div>
-            <div class="box"><strong>Vysledek</strong><p>${resultLabel(selected?.result_type ?? resultType)} ${formatCurrency(Math.abs(selected?.balance_total ?? balance))}</p></div>
+            <div class="box"><strong>Prijate zalohy</strong><p>${formatCurrency(computedAdvances)}</p></div>
+            <div class="box"><strong>Skutecne naklady</strong><p>${formatCurrency(actualTotal)}</p></div>
+            <div class="box"><strong>Vysledek</strong><p>${resultLabel(resultType)} ${formatCurrency(Math.abs(balance))}</p></div>
             <div class="box"><strong>Stav workflow</strong><p>${statusLabel(selected?.status ?? "draft")}</p></div>
           </div>
 
@@ -481,45 +484,64 @@ export default function UtilityBillingPage() {
                   <CardTitle className="text-base">A) Zakladni udaje</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Nazev vyuctovani" />
-                  <select
-                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                    value={tenantId}
-                    onChange={(event) => {
-                      const nextTenant = tenants.find((tenant) => tenant.id === event.target.value) ?? null;
-                      setTenantId(event.target.value);
-                      setPropertyId(nextTenant?.property_id ?? "");
-                    }}
-                  >
-                    <option value="">Vyberte najemnika</option>
-                    {tenants.map((tenant) => (
-                      <option key={tenant.id} value={tenant.id}>
-                        {tenant.full_name}
-                      </option>
-                    ))}
-                  </select>
-                  <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={propertyId} onChange={(event) => setPropertyId(event.target.value)}>
-                    <option value="">Vyberte nemovitost</option>
-                    {properties.map((property) => (
-                      <option key={property.id} value={property.id}>
-                        {property.name}
-                      </option>
-                    ))}
-                  </select>
-                  <Input type="date" value={periodFrom} onChange={(event) => setPeriodFrom(event.target.value)} />
-                  <Input type="date" value={periodTo} onChange={(event) => setPeriodTo(event.target.value)} />
-                  <Button variant="outline" onClick={() => resetDraft()}>
-                    Novy koncept
-                  </Button>
-                  <Input value={issueDate} readOnly />
-                  <Input value={settlementDueDate} readOnly />
-                  <div className="flex items-center">
-                    <Badge variant="secondary">{statusLabel(selected?.status ?? "draft")}</Badge>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Nazev vyuctovani</label>
+                    <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Nazev vyuctovani" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Najemnik</label>
+                    <select
+                      className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      value={tenantId}
+                      onChange={(event) => {
+                        const nextTenant = tenants.find((tenant) => tenant.id === event.target.value) ?? null;
+                        setTenantId(event.target.value);
+                        setPropertyId(nextTenant?.property_id ?? "");
+                      }}
+                    >
+                      <option value="">Vyberte najemnika</option>
+                      {tenants.map((tenant) => (
+                        <option key={tenant.id} value={tenant.id}>
+                          {tenant.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Nemovitost / jednotka</label>
+                    <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={propertyId} onChange={(event) => setPropertyId(event.target.value)}>
+                      <option value="">Vyberte nemovitost</option>
+                      {properties.map((property) => (
+                        <option key={property.id} value={property.id}>
+                          {property.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Obdobi od</label>
+                    <Input type="date" value={periodFrom} onChange={(event) => setPeriodFrom(event.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Obdobi do</label>
+                    <Input type="date" value={periodTo} onChange={(event) => setPeriodTo(event.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Stav workflow</label>
+                    <div className="flex h-10 items-center">
+                      <Badge variant="secondary">{statusLabel(selected?.status ?? "draft")}</Badge>
+                    </div>
                   </div>
                   <div className="md:col-span-2 xl:col-span-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <label className="text-sm font-medium">Interni poznamka</label>
+                      <Button variant="outline" onClick={() => resetDraft()}>
+                        Novy koncept
+                      </Button>
+                    </div>
                     <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Interni poznamka k vyuctovani" rows={3} />
                   </div>
-                  {periodError ? <p className="md:col-span-2 xl:col-span-3 text-sm text-destructive">{periodError}</p> : null}
+                  {inlinePeriodError ? <p className="md:col-span-2 xl:col-span-3 text-sm text-destructive">{inlinePeriodError}</p> : null}
                 </CardContent>
               </Card>
 
@@ -552,11 +574,11 @@ export default function UtilityBillingPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <SummaryLine label="Najemnik" value={selected?.tenant_name ?? selectedTenant?.full_name ?? "-"} />
-                    <SummaryLine label="Nemovitost / jednotka" value={selected?.property_name ?? selectedProperty?.name ?? "-"} />
-                    <SummaryLine label="Prijate zalohy" value={formatCurrency(selected?.advances_total ?? computedAdvances)} />
-                    <SummaryLine label="Skutecne naklady" value={formatCurrency(selected?.actual_cost_total ?? actualTotal)} />
-                    <SummaryLine label="Preplatek / nedoplatek" value={`${resultLabel(selected?.result_type ?? resultType)} ${formatCurrency(Math.abs(selected?.balance_total ?? balance))}`} tone={selected?.result_type === "nedoplatek" || resultType === "nedoplatek" ? "danger" : "success"} />
+                    <SummaryLine label="Najemnik" value={activeTenantName} />
+                    <SummaryLine label="Nemovitost / jednotka" value={activePropertyName} />
+                    <SummaryLine label="Prijate zalohy" value={formatCurrency(computedAdvances)} />
+                    <SummaryLine label="Skutecne naklady" value={formatCurrency(actualTotal)} />
+                    <SummaryLine label="Preplatek / nedoplatek" value={`${resultLabel(resultType)} ${formatCurrency(Math.abs(balance))}`} tone={resultType === "nedoplatek" ? "danger" : "success"} />
                     <SummaryLine label="Stav workflow" value={statusLabel(selected?.status ?? "draft")} />
                     <SummaryLine label="Obdobi" value={`${formatDate(periodFrom)} - ${formatDate(periodTo)}`} />
                     <SummaryLine label="PDF podklad" value={`${items.filter((item) => item.service_name.trim()).length} polozek`} />
@@ -565,7 +587,7 @@ export default function UtilityBillingPage() {
                   </div>
 
                   <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                    PDF vznikne z vyplnenych zakladnich udaju a z tabulky polozek sluzeb / vydaju uvedene vyse.
+                    PDF vznikne z aktualne vybraneho najemnika, jednotky, zuctovaciho obdobi, teto tabulky polozek a z prave vypocteneho souhrnu.
                   </div>
 
                   <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
@@ -598,9 +620,9 @@ export default function UtilityBillingPage() {
                   {!canPersistSettlements ? (
                     <p className="text-sm text-muted-foreground">Generovat PDF otevre tiskovy nahled i bez backend exportu. Workflow akce jako exportovane nebo odeslane ale zustavaji vypnute, dokud nebude dostupna formalni settlement cast backendu a DB.</p>
                   ) : !selectedId ? (
-                    <p className="text-sm text-muted-foreground">PDF preview je k dispozici po doplneni zakladnich udaju a polozek. Pro zaznamenani do workflow ale nejprve ulozte nebo otevrete konkretni vyuctovani.</p>
+                    <p className="text-sm text-muted-foreground">Postup je jednoduchy: vyplnte udaje, doplnte polozky, spocitejte vysledek a pak otevrite PDF preview. Pro zaznamenani do workflow je potom potreba koncept ulozit.</p>
                   ) : (
-                    <p className="text-sm text-muted-foreground">Generovat PDF otevira tiskovy nahled z aktualnich polozek a udaju. Tlacitko Oznacit jako exportovane zaznamena stav ve workflow.</p>
+                    <p className="text-sm text-muted-foreground">Generovat PDF otevira tiskovy nahled z aktualniho formulare a tabulky polozek. Tlacitko Oznacit jako exportovane zaznamena stav ve workflow.</p>
                   )}
                 </CardContent>
               </Card>
