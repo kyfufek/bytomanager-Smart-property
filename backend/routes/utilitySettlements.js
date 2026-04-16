@@ -62,14 +62,45 @@ function resultTypeFromBalance(balance) {
 }
 
 function normalizeItem(item, index) {
+  const allocationMethod = String(item?.allocation_method || item?.allocationMethod || 'fixed')
+    .trim()
+    .toLowerCase();
+
   return {
     service_name: String(item?.service_name || item?.name || '').trim(),
+    allocation_method: ['persons', 'area', 'meter', 'fixed'].includes(allocationMethod) ? allocationMethod : 'fixed',
     advances_paid: Math.max(0, toNumber(item?.advances_paid)),
     actual_cost: Math.max(0, toNumber(item?.actual_cost)),
     difference: toNumber(item?.advances_paid) - toNumber(item?.actual_cost),
     note: typeof item?.note === 'string' && item.note.trim() ? item.note.trim() : null,
     sort_order: Number.isInteger(item?.sort_order) ? item.sort_order : index,
   };
+}
+
+function isMissingAllocationMethodColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  const details = String(error?.details || '').toLowerCase();
+  const hint = String(error?.hint || '').toLowerCase();
+  const text = `${message} ${details} ${hint}`;
+  return text.includes('allocation_method') && (
+    text.includes('does not exist')
+    || text.includes('could not find')
+    || text.includes('schema cache')
+    || text.includes('column')
+  );
+}
+
+async function insertSettlementItems(items) {
+  const { error } = await supabase.from('utility_settlement_items').insert(items);
+  if (!error) return { error: null };
+
+  if (!isMissingAllocationMethodColumnError(error)) {
+    return { error };
+  }
+
+  const fallbackItems = items.map(({ allocation_method, ...rest }) => rest);
+  const fallback = await supabase.from('utility_settlement_items').insert(fallbackItems);
+  return { error: fallback.error || null };
 }
 
 async function ensureTenantAndPropertyOwnership(ownerId, tenantId, propertyId) {
@@ -105,14 +136,20 @@ async function ensureTenantAndPropertyOwnership(ownerId, tenantId, propertyId) {
   return { error: null, tenant, propertyId: resolvedPropertyId, property };
 }
 
-async function computeAdvancesPaid(ownerId, tenantId, periodFrom, periodTo) {
-  const { data, error } = await supabase
+async function computeAdvancesPaid(ownerId, tenantId, propertyId, periodFrom, periodTo) {
+  let query = supabase
     .from('payments')
     .select('amount, status, due_date, paid_date')
     .eq('owner_id', ownerId)
     .eq('tenant_id', tenantId)
     .gte('due_date', periodFrom)
     .lte('due_date', periodTo);
+
+  if (propertyId) {
+    query = query.eq('property_id', propertyId);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw error;
 
@@ -210,7 +247,7 @@ router.post('/billing/settlements', async (req, res) => {
     const ownership = await ensureTenantAndPropertyOwnership(req.user.id, tenantId, propertyId);
     if (ownership.error) return res.status(400).json({ error: ownership.error.message || 'Invalid tenant/property.' });
 
-    const advancesPaid = await computeAdvancesPaid(req.user.id, tenantId, periodFrom, periodTo);
+    const advancesPaid = await computeAdvancesPaid(req.user.id, tenantId, ownership.propertyId, periodFrom, periodTo);
     const normalizedItems = items.map(normalizeItem).filter((item) => item.service_name);
     const actualCostTotal = normalizedItems.reduce((sum, item) => sum + toNumber(item.actual_cost), 0);
     const balanceTotal = advancesPaid - actualCostTotal;
@@ -237,7 +274,7 @@ router.post('/billing/settlements', async (req, res) => {
     if (createError) return res.status(500).json({ error: 'Failed to create settlement.', details: createError.message });
 
     if (normalizedItems.length) {
-      const { error: itemsError } = await supabase.from('utility_settlement_items').insert(
+      const { error: itemsError } = await insertSettlementItems(
         normalizedItems.map((item) => ({
           ...item,
           owner_id: req.user.id,
@@ -281,7 +318,7 @@ router.put('/billing/settlements/:id', async (req, res) => {
     const normalizedItems = Array.isArray(body.items)
       ? body.items.map(normalizeItem).filter((item) => item.service_name)
       : (existing.items || []).map((item, index) => normalizeItem(item, index)).filter((item) => item.service_name);
-    const advancesPaid = await computeAdvancesPaid(req.user.id, existing.tenant_id, nextPeriodFrom, nextPeriodTo);
+    const advancesPaid = await computeAdvancesPaid(req.user.id, existing.tenant_id, existing.property_id, nextPeriodFrom, nextPeriodTo);
     const actualCostTotal = normalizedItems.reduce((sum, item) => sum + toNumber(item.actual_cost), 0);
     const balanceTotal = advancesPaid - actualCostTotal;
 
@@ -320,9 +357,9 @@ router.put('/billing/settlements/:id', async (req, res) => {
       if (deleteError) return res.status(500).json({ error: 'Failed to replace items.', details: deleteError.message });
 
       if (normalizedItems.length) {
-        const { error: insertError } = await supabase
-          .from('utility_settlement_items')
-          .insert(normalizedItems.map((item) => ({ ...item, settlement_id: id, owner_id: req.user.id })));
+        const { error: insertError } = await insertSettlementItems(
+          normalizedItems.map((item) => ({ ...item, settlement_id: id, owner_id: req.user.id })),
+        );
         if (insertError) return res.status(500).json({ error: 'Failed to save items.', details: insertError.message });
       }
     }
@@ -342,7 +379,7 @@ router.post('/billing/settlements/:id/calculate', async (req, res) => {
     if (settlementError) return res.status(500).json({ error: 'Failed to load settlement.', details: settlementError.message });
     if (!settlement) return res.status(404).json({ error: 'Settlement not found.' });
 
-    const advancesPaid = await computeAdvancesPaid(req.user.id, settlement.tenant_id, settlement.period_from, settlement.period_to);
+    const advancesPaid = await computeAdvancesPaid(req.user.id, settlement.tenant_id, settlement.property_id, settlement.period_from, settlement.period_to);
     const actualCostTotal = (settlement.items || []).reduce((sum, item) => sum + toNumber(item.actual_cost), 0);
     const balanceTotal = advancesPaid - actualCostTotal;
 

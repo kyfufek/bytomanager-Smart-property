@@ -20,8 +20,9 @@ type HistoryStatusFilter = WorkflowStatus | "all";
 
 type TenantItem = { id: string; full_name: string; property_id: string | null };
 type PropertyItem = { id: string; name: string };
-type PaymentItem = { id?: string; tenant_id: string; amount: number; status: string; due_date: string; paid_date: string | null };
-type SettlementItem = { id?: string; service_name: string; advances_paid: number; actual_cost: number; difference: number; note: string | null; sort_order: number };
+type PaymentItem = { id?: string; tenant_id: string; property_id?: string | null; amount: number; status: string; due_date: string; paid_date: string | null; note?: string | null };
+type AllocationMethod = "persons" | "area" | "meter" | "fixed";
+type SettlementItem = { id?: string; service_name: string; allocation_method?: AllocationMethod; advances_paid: number; actual_cost: number; difference: number; note: string | null; sort_order: number };
 type Settlement = {
   id: string;
   tenant_id: string;
@@ -47,10 +48,10 @@ type Settlement = {
 };
 
 const baseItems: SettlementItem[] = [
-  { service_name: "Voda", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 0 },
-  { service_name: "Teplo", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 1 },
-  { service_name: "Elektrina spolecnych prostor", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 2 },
-  { service_name: "Uklid a odvoz odpadu", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 3 },
+  { service_name: "Voda", allocation_method: "meter", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 0 },
+  { service_name: "Teplo", allocation_method: "area", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 1 },
+  { service_name: "Elektrina spolecnych prostor", allocation_method: "area", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 2 },
+  { service_name: "Uklid a odvoz odpadu", allocation_method: "persons", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 3 },
 ];
 
 function formatCurrency(value: number) {
@@ -86,9 +87,19 @@ function getPeriodError(periodFrom: string, periodTo: string) {
 function normalizeSettlementItems(items: SettlementItem[]) {
   return items.map((item, index) => ({
     ...item,
+    allocation_method: item.allocation_method ?? "fixed",
     sort_order: index,
     difference: Number(item.advances_paid || 0) - Number(item.actual_cost || 0),
   }));
+}
+
+function allocationMethodLabel(value: AllocationMethod | undefined) {
+  return {
+    persons: "Podle osob",
+    area: "Podle plochy",
+    meter: "Podle meridla",
+    fixed: "Pevna castka",
+  }[value ?? "fixed"];
 }
 
 export default function UtilityBillingPage() {
@@ -121,10 +132,11 @@ export default function UtilityBillingPage() {
   const paymentsInPeriod = useMemo(() => {
     return payments.filter((payment) => {
       if (payment.tenant_id !== tenantId) return false;
+      if (propertyId && payment.property_id && payment.property_id !== propertyId) return false;
       if (!periodFrom || !periodTo) return true;
       return payment.due_date >= periodFrom && payment.due_date <= periodTo;
     });
-  }, [payments, periodFrom, periodTo, tenantId]);
+  }, [payments, periodFrom, periodTo, propertyId, tenantId]);
 
   const computedAdvances = useMemo(() => {
     return paymentsInPeriod.reduce((sum, payment) => {
@@ -142,6 +154,103 @@ export default function UtilityBillingPage() {
   }, [history, historyStatusFilter]);
 
   const importRows = useMemo(() => paymentsInPeriod.slice(0, 8), [paymentsInPeriod]);
+  const importPaidTotal = useMemo(() => importRows.filter((payment) => payment.status === "paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0), [importRows]);
+  const issueDate = selected?.created_at ? selected.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const settlementDueDate = useMemo(() => {
+    const baseDate = issueDate ? new Date(`${issueDate}T00:00:00.000Z`) : new Date();
+    baseDate.setUTCDate(baseDate.getUTCDate() + 30);
+    return baseDate.toISOString().slice(0, 10);
+  }, [issueDate]);
+
+  function transferImportSummaryToNotes() {
+    const lines = importRows.map((payment) => `- ${formatDate(payment.due_date)} | ${formatCurrency(payment.amount)} | ${payment.status}${payment.note ? ` | ${payment.note}` : ""}`);
+    const summary = [`Import podkladu pro vyuctovani:`, ...lines].join("\n");
+    setNotes((current) => (current.trim() ? `${current}\n\n${summary}` : summary));
+    setMode("manual");
+    toast({ title: "Podklady preneseny", description: "Souhrn importnich plateb byl vlozen do interni poznamky vyuctovani." });
+  }
+
+  function openPdfPreview() {
+    if (!tenantId || !propertyId || periodError) {
+      toast({ title: "PDF preview nelze otevrit", description: "Doplnte zakladni udaje a validni obdobi vyuctovani.", variant: "destructive" });
+      return;
+    }
+
+    const preview = window.open("", "_blank", "noopener,noreferrer,width=1100,height=900");
+    if (!preview) {
+      toast({ title: "Okno s PDF preview se nepodarilo otevrit", description: "Zkontrolujte blokovani vyskakovacich oken v prohlizeci.", variant: "destructive" });
+      return;
+    }
+
+    const rowsHtml = items
+      .map((item) => `
+        <tr>
+          <td>${item.service_name || "-"}</td>
+          <td>${allocationMethodLabel(item.allocation_method)}</td>
+          <td style="text-align:right;">${formatCurrency(item.advances_paid)}</td>
+          <td style="text-align:right;">${formatCurrency(item.actual_cost)}</td>
+          <td style="text-align:right;">${formatCurrency(Math.abs(item.difference))}</td>
+          <td>${item.note || "-"}</td>
+        </tr>
+      `)
+      .join("");
+
+    preview.document.write(`
+      <html>
+        <head>
+          <title>Vyuctovani sluzeb</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #111827; padding: 32px; }
+            h1, h2 { margin: 0 0 12px; }
+            p { margin: 4px 0; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #d1d5db; padding: 10px; font-size: 13px; vertical-align: top; }
+            th { background: #f3f4f6; text-align: left; }
+            .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
+            .box { border: 1px solid #d1d5db; padding: 12px; border-radius: 8px; }
+            .summary { margin-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <h1>${title || "Vyuctovani sluzeb"}</h1>
+          <p><strong>Najemnik:</strong> ${selected?.tenant_name ?? selectedTenant?.full_name ?? "-"}</p>
+          <p><strong>Nemovitost / jednotka:</strong> ${selected?.property_name ?? selectedProperty?.name ?? "-"}</p>
+          <p><strong>Zuctovaci obdobi:</strong> ${formatDate(periodFrom)} - ${formatDate(periodTo)}</p>
+          <p><strong>Datum vystaveni:</strong> ${formatDate(issueDate)}</p>
+          <p><strong>Termin vyporadani:</strong> ${formatDate(settlementDueDate)}</p>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Sluzba / polozka</th>
+                <th>Zpusob rozuctovani</th>
+                <th>Prijate zalohy</th>
+                <th>Skutecne naklady</th>
+                <th>Rozdil</th>
+                <th>Poznamka</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+
+          <div class="grid summary">
+            <div class="box"><strong>Prijate zalohy</strong><p>${formatCurrency(selected?.advances_total ?? computedAdvances)}</p></div>
+            <div class="box"><strong>Skutecne naklady</strong><p>${formatCurrency(selected?.actual_cost_total ?? actualTotal)}</p></div>
+            <div class="box"><strong>Vysledek</strong><p>${resultLabel(selected?.result_type ?? resultType)} ${formatCurrency(Math.abs(selected?.balance_total ?? balance))}</p></div>
+            <div class="box"><strong>Stav workflow</strong><p>${statusLabel(selected?.status ?? "draft")}</p></div>
+          </div>
+
+          <div class="box" style="margin-top:20px;">
+            <strong>Poznamka / podklady</strong>
+            <p>${(notes || "Bez poznamky").replace(/\n/g, "<br/>")}</p>
+          </div>
+        </body>
+      </html>
+    `);
+    preview.document.close();
+    preview.focus();
+    toast({ title: "PDF preview pripraveno", description: "Otevrel se tiskovy nahled vyuctovani zalozeny na aktualni tabulce polozek." });
+  }
 
   async function loadAll() {
     try {
@@ -402,6 +511,11 @@ export default function UtilityBillingPage() {
                   <Button variant="outline" onClick={() => resetDraft()}>
                     Novy koncept
                   </Button>
+                  <Input value={issueDate} readOnly />
+                  <Input value={settlementDueDate} readOnly />
+                  <div className="flex items-center">
+                    <Badge variant="secondary">{statusLabel(selected?.status ?? "draft")}</Badge>
+                  </div>
                   <div className="md:col-span-2 xl:col-span-3">
                     <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Interni poznamka k vyuctovani" rows={3} />
                   </div>
@@ -446,6 +560,8 @@ export default function UtilityBillingPage() {
                     <SummaryLine label="Stav workflow" value={statusLabel(selected?.status ?? "draft")} />
                     <SummaryLine label="Obdobi" value={`${formatDate(periodFrom)} - ${formatDate(periodTo)}`} />
                     <SummaryLine label="PDF podklad" value={`${items.filter((item) => item.service_name.trim()).length} polozek`} />
+                    <SummaryLine label="Datum vystaveni" value={formatDate(issueDate)} />
+                    <SummaryLine label="Termin vyporadani" value={formatDate(settlementDueDate)} />
                   </div>
 
                   <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
@@ -461,9 +577,13 @@ export default function UtilityBillingPage() {
                       <RefreshCcw className="mr-2 h-4 w-4" />
                       Spocitat
                     </Button>
-                    <Button variant="cta" disabled={saving || !selectedId || !canPersistSettlements} onClick={() => void updateStatus("exported")}>
+                    <Button variant="cta" disabled={saving || !tenantId || !propertyId || Boolean(periodError)} onClick={openPdfPreview}>
                       <Download className="mr-2 h-4 w-4" />
                       Generovat PDF
+                    </Button>
+                    <Button variant="outline" disabled={saving || !selectedId || !canPersistSettlements} onClick={() => updateStatus("exported")}>
+                      <Download className="mr-2 h-4 w-4" />
+                      Oznacit jako exportovane
                     </Button>
                     <Button variant="outline" disabled={saving || !selectedId || !canPersistSettlements} onClick={() => updateStatus("reviewed")}>
                       <ShieldCheck className="mr-2 h-4 w-4" />
@@ -476,11 +596,11 @@ export default function UtilityBillingPage() {
                   </div>
 
                   {!canPersistSettlements ? (
-                    <p className="text-sm text-muted-foreground">Generovat PDF je viditelne, ale vypnute, dokud nebude dostupna formalni settlement cast backendu a DB.</p>
+                    <p className="text-sm text-muted-foreground">Generovat PDF otevre tiskovy nahled i bez backend exportu. Workflow akce jako exportovane nebo odeslane ale zustavaji vypnute, dokud nebude dostupna formalni settlement cast backendu a DB.</p>
                   ) : !selectedId ? (
-                    <p className="text-sm text-muted-foreground">Pro generovani PDF nejprve ulozte nebo otevrete konkretni vyuctovani.</p>
+                    <p className="text-sm text-muted-foreground">PDF preview je k dispozici po doplneni zakladnich udaju a polozek. Pro zaznamenani do workflow ale nejprve ulozte nebo otevrete konkretni vyuctovani.</p>
                   ) : (
-                    <p className="text-sm text-muted-foreground">Tlacitko Generovat PDF aktualne oznaci vyuctovani jako exportovane a pripravi ho pro dokumentovy vystup.</p>
+                    <p className="text-sm text-muted-foreground">Generovat PDF otevira tiskovy nahled z aktualnich polozek a udaju. Tlacitko Oznacit jako exportovane zaznamena stav ve workflow.</p>
                   )}
                 </CardContent>
               </Card>
@@ -553,37 +673,74 @@ export default function UtilityBillingPage() {
               </Card>
             </div>
           ) : mode === "import" ? (
-            <Card className="card-shadow">
+              <Card className="card-shadow">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Import plateb / podkladu</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">Importni rezim je zatim zjednoduseny. Slouzi hlavne jako nahled plateb, ktere muzete pouzit pri rucnim vyuctovani.</p>
+                <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-4 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Pomocny vstup pro rucni vyuctovani</p>
+                    <p className="text-sm text-muted-foreground">Vybrane platby se automaticky filtruji podle najemnika, jednotky a zuctovaciho obdobi. Souhrn muzete prenest do interni poznamky a pouzit ho jako podklad pro finalni tabulku polozek.</p>
+                  </div>
+                  <div className="grid gap-2 text-sm text-muted-foreground md:min-w-[260px]">
+                    <div><span className="font-medium text-foreground">Najemnik:</span> {selectedTenant?.full_name || "Nevybran"}</div>
+                    <div><span className="font-medium text-foreground">Nemovitost / jednotka:</span> {selectedProperty?.name || "Nevybrana"}</div>
+                    <div><span className="font-medium text-foreground">Obdobi:</span> {periodFrom ? formatDate(periodFrom) : "-"} - {periodTo ? formatDate(periodTo) : "-"}</div>
+                    <div><span className="font-medium text-foreground">Prijate zalohy v obdobi:</span> {formatCurrency(importPaidTotal)}</div>
+                  </div>
+                </div>
                 {!tenantId ? (
                   <DataState title="Nejprve vyberte najemnika v rucnim rezimu" description="Importni nahled navazuje na vybraneho najemnika a zuctovaci obdobi." actionLabel="Prejit na rucni vyuctovani" onAction={() => setMode("manual")} />
                 ) : importRows.length === 0 ? (
                   <DataState title="Pro vybrane obdobi nejsou zadne platby" description="Pokud potrebujete vytvorit vyuctovani, muzete pokracovat rucne a doplnit polozky sami." actionLabel="Prejit na rucni vyuctovani" onAction={() => setMode("manual")} />
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Splatnost</TableHead>
-                        <TableHead>Castka</TableHead>
-                        <TableHead>Uhrazeno</TableHead>
-                        <TableHead>Stav</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {importRows.map((payment) => (
-                        <TableRow key={String(payment.id)}>
-                          <TableCell>{formatDate(payment.due_date)}</TableCell>
-                          <TableCell>{formatCurrency(payment.amount)}</TableCell>
-                          <TableCell>{formatDate(payment.paid_date)}</TableCell>
-                          <TableCell>{payment.status}</TableCell>
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="text-sm text-muted-foreground">
+                        Kazda nalezena platba je podklad pro zalohy v tomto vyuctovani. Zatim ji neprenasime primo do jednotlivych sluzeb, ale muzete si ji jednim kliknutim propsat do interni poznamky.
+                      </div>
+                      <Button variant="outline" onClick={transferImportSummaryToNotes}>
+                        Prenest souhrn do poznamky
+                      </Button>
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Splatnost</TableHead>
+                          <TableHead>Najemnik / jednotka</TableHead>
+                          <TableHead>Castka</TableHead>
+                          <TableHead>Uhrazeno</TableHead>
+                          <TableHead>Stav</TableHead>
+                          <TableHead>Pouziti</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {importRows.map((payment) => (
+                          <TableRow key={String(payment.id)}>
+                            <TableCell>{formatDate(payment.due_date)}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="font-medium">{selectedTenant?.full_name || "-"}</div>
+                                <div className="text-xs text-muted-foreground">{selectedProperty?.name || "Bez prirazene jednotky"}</div>
+                              </div>
+                            </TableCell>
+                            <TableCell>{formatCurrency(payment.amount)}</TableCell>
+                            <TableCell>{formatDate(payment.paid_date)}</TableCell>
+                            <TableCell>
+                              <Badge variant={payment.status === "paid" ? "default" : "secondary"}>{payment.status}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <Badge variant="outline">Zahrnuto do zaloh</Badge>
+                                {payment.note ? <div className="text-xs text-muted-foreground">{payment.note}</div> : <div className="text-xs text-muted-foreground">Bez doplnujici poznamky</div>}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -658,6 +815,7 @@ function ServiceItemsEditor({ items, onChange }: { items: SettlementItem[]; onCh
       <TableHeader>
         <TableRow>
           <TableHead>Sluzba / polozka</TableHead>
+          <TableHead>Zpusob rozuctovani</TableHead>
           <TableHead className="text-right">Prijate zalohy</TableHead>
           <TableHead className="text-right">Skutecne naklady</TableHead>
           <TableHead className="text-right">Rozdil</TableHead>
@@ -670,6 +828,18 @@ function ServiceItemsEditor({ items, onChange }: { items: SettlementItem[]; onCh
           <TableRow key={`${index}-${item.service_name}`}>
             <TableCell>
               <Input value={item.service_name} onChange={(event) => update(index, "service_name", event.target.value)} />
+            </TableCell>
+            <TableCell>
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={item.allocation_method || "fixed"}
+                onChange={(event) => update(index, "allocation_method", event.target.value as AllocationMethod)}
+              >
+                <option value="persons">Podle osob</option>
+                <option value="area">Podle plochy</option>
+                <option value="meter">Podle meridla</option>
+                <option value="fixed">Pevna castka</option>
+              </select>
             </TableCell>
             <TableCell>
               <Input type="number" className="text-right" value={item.advances_paid} onChange={(event) => update(index, "advances_paid", Number(event.target.value))} />
