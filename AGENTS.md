@@ -156,6 +156,7 @@ backend/
   - `utility_settlements`
   - `utility_settlement_items`
   - polozky vyuctovani mohou obsahovat i `allocation_method` (`persons`, `area`, `meter`, `fixed`) pro zpusob rozuctovani
+  - settlement muze volitelne ukladat `advance_payment_ids`, tedy konkretni vybrane platby, ktere se maji zapocitat do zaloh
   - zalohy pro settlement se musi filtrovat podle `owner_id`, `tenant_id`, `property_id` a zuctovaciho obdobi, nikdy ne globalne
   - indexy + RLS policy pro owner-scoped pristup.
 

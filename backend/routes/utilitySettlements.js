@@ -77,12 +77,12 @@ function normalizeItem(item, index) {
   };
 }
 
-function isMissingAllocationMethodColumnError(error) {
+function isMissingColumnError(error, columnName) {
   const message = String(error?.message || '').toLowerCase();
   const details = String(error?.details || '').toLowerCase();
   const hint = String(error?.hint || '').toLowerCase();
   const text = `${message} ${details} ${hint}`;
-  return text.includes('allocation_method') && (
+  return text.includes(String(columnName || '').toLowerCase()) && (
     text.includes('does not exist')
     || text.includes('could not find')
     || text.includes('schema cache')
@@ -90,17 +90,58 @@ function isMissingAllocationMethodColumnError(error) {
   );
 }
 
+function normalizeAdvancePaymentIds(value) {
+  if (!Array.isArray(value)) return undefined;
+  return value.map((item) => String(item || '').trim()).filter(Boolean);
+}
+
 async function insertSettlementItems(items) {
   const { error } = await supabase.from('utility_settlement_items').insert(items);
   if (!error) return { error: null };
 
-  if (!isMissingAllocationMethodColumnError(error)) {
+  if (!isMissingColumnError(error, 'allocation_method')) {
     return { error };
   }
 
   const fallbackItems = items.map(({ allocation_method, ...rest }) => rest);
   const fallback = await supabase.from('utility_settlement_items').insert(fallbackItems);
   return { error: fallback.error || null };
+}
+
+async function insertSettlementWithFallback(payload) {
+  const result = await supabase
+    .from('utility_settlements')
+    .insert(payload)
+    .select('id')
+    .single();
+
+  if (!result.error) return result;
+  if (!isMissingColumnError(result.error, 'advance_payment_ids')) return result;
+
+  const { advance_payment_ids, ...fallbackPayload } = payload;
+  return supabase
+    .from('utility_settlements')
+    .insert(fallbackPayload)
+    .select('id')
+    .single();
+}
+
+async function updateSettlementWithFallback(ownerId, settlementId, patch) {
+  const result = await supabase
+    .from('utility_settlements')
+    .update(patch)
+    .eq('id', settlementId)
+    .eq('owner_id', ownerId);
+
+  if (!result.error) return result;
+  if (!isMissingColumnError(result.error, 'advance_payment_ids')) return result;
+
+  const { advance_payment_ids, ...fallbackPatch } = patch;
+  return supabase
+    .from('utility_settlements')
+    .update(fallbackPatch)
+    .eq('id', settlementId)
+    .eq('owner_id', ownerId);
 }
 
 async function ensureTenantAndPropertyOwnership(ownerId, tenantId, propertyId) {
@@ -136,10 +177,15 @@ async function ensureTenantAndPropertyOwnership(ownerId, tenantId, propertyId) {
   return { error: null, tenant, propertyId: resolvedPropertyId, property };
 }
 
-async function computeAdvancesPaid(ownerId, tenantId, propertyId, periodFrom, periodTo) {
+async function computeAdvancesPaid(ownerId, tenantId, propertyId, periodFrom, periodTo, selectedPaymentIds) {
+  const normalizedPaymentIds = normalizeAdvancePaymentIds(selectedPaymentIds);
+  if (Array.isArray(selectedPaymentIds) && normalizedPaymentIds?.length === 0) {
+    return 0;
+  }
+
   let query = supabase
     .from('payments')
-    .select('amount, status, due_date, paid_date')
+    .select('id, amount, status, due_date, paid_date')
     .eq('owner_id', ownerId)
     .eq('tenant_id', tenantId)
     .gte('due_date', periodFrom)
@@ -147,6 +193,10 @@ async function computeAdvancesPaid(ownerId, tenantId, propertyId, periodFrom, pe
 
   if (propertyId) {
     query = query.eq('property_id', propertyId);
+  }
+
+  if (normalizedPaymentIds?.length) {
+    query = query.in('id', normalizedPaymentIds);
   }
 
   const { data, error } = await query;
@@ -233,6 +283,7 @@ router.post('/billing/settlements', async (req, res) => {
     const body = req.body || {};
     const tenantId = body.tenant_id ?? body.tenantId;
     const propertyId = body.property_id ?? body.propertyId ?? null;
+    const advancePaymentIds = normalizeAdvancePaymentIds(body.advance_payment_ids ?? body.advancePaymentIds);
     const periodFrom = normalizeDate(body.period_from ?? body.periodFrom);
     const periodTo = normalizeDate(body.period_to ?? body.periodTo);
     const title = typeof body.title === 'string' && body.title.trim() ? body.title.trim() : null;
@@ -247,29 +298,26 @@ router.post('/billing/settlements', async (req, res) => {
     const ownership = await ensureTenantAndPropertyOwnership(req.user.id, tenantId, propertyId);
     if (ownership.error) return res.status(400).json({ error: ownership.error.message || 'Invalid tenant/property.' });
 
-    const advancesPaid = await computeAdvancesPaid(req.user.id, tenantId, ownership.propertyId, periodFrom, periodTo);
+    const advancesPaid = await computeAdvancesPaid(req.user.id, tenantId, ownership.propertyId, periodFrom, periodTo, advancePaymentIds);
     const normalizedItems = items.map(normalizeItem).filter((item) => item.service_name);
     const actualCostTotal = normalizedItems.reduce((sum, item) => sum + toNumber(item.actual_cost), 0);
     const balanceTotal = advancesPaid - actualCostTotal;
 
-    const { data: settlement, error: createError } = await supabase
-      .from('utility_settlements')
-      .insert({
-        owner_id: req.user.id,
-        tenant_id: tenantId,
-        property_id: ownership.propertyId,
-        period_from: periodFrom,
-        period_to: periodTo,
-        title,
-        notes,
-        status: 'draft',
-        advances_total: advancesPaid,
-        actual_cost_total: actualCostTotal,
-        balance_total: balanceTotal,
-        result_type: resultTypeFromBalance(balanceTotal),
-      })
-      .select('id')
-      .single();
+    const { data: settlement, error: createError } = await insertSettlementWithFallback({
+      owner_id: req.user.id,
+      tenant_id: tenantId,
+      property_id: ownership.propertyId,
+      period_from: periodFrom,
+      period_to: periodTo,
+      title,
+      notes,
+      status: 'draft',
+      advances_total: advancesPaid,
+      actual_cost_total: actualCostTotal,
+      balance_total: balanceTotal,
+      result_type: resultTypeFromBalance(balanceTotal),
+      advance_payment_ids: advancePaymentIds,
+    });
 
     if (createError) return res.status(500).json({ error: 'Failed to create settlement.', details: createError.message });
 
@@ -310,6 +358,9 @@ router.put('/billing/settlements/:id', async (req, res) => {
 
     const nextPeriodFrom = body.period_from ? normalizeDate(body.period_from) : existing.period_from;
     const nextPeriodTo = body.period_to ? normalizeDate(body.period_to) : existing.period_to;
+    const nextAdvancePaymentIds = Object.prototype.hasOwnProperty.call(body, 'advance_payment_ids') || Object.prototype.hasOwnProperty.call(body, 'advancePaymentIds')
+      ? normalizeAdvancePaymentIds(body.advance_payment_ids ?? body.advancePaymentIds)
+      : existing.advance_payment_ids;
     const periodError = validateSettlementPeriod(nextPeriodFrom, nextPeriodTo);
     if (periodError) {
       return res.status(400).json({ error: periodError });
@@ -318,7 +369,7 @@ router.put('/billing/settlements/:id', async (req, res) => {
     const normalizedItems = Array.isArray(body.items)
       ? body.items.map(normalizeItem).filter((item) => item.service_name)
       : (existing.items || []).map((item, index) => normalizeItem(item, index)).filter((item) => item.service_name);
-    const advancesPaid = await computeAdvancesPaid(req.user.id, existing.tenant_id, existing.property_id, nextPeriodFrom, nextPeriodTo);
+    const advancesPaid = await computeAdvancesPaid(req.user.id, existing.tenant_id, existing.property_id, nextPeriodFrom, nextPeriodTo, nextAdvancePaymentIds);
     const actualCostTotal = normalizedItems.reduce((sum, item) => sum + toNumber(item.actual_cost), 0);
     const balanceTotal = advancesPaid - actualCostTotal;
 
@@ -335,16 +386,15 @@ router.put('/billing/settlements/:id', async (req, res) => {
     if (body.period_from) patch.period_from = nextPeriodFrom;
     if (body.period_to) patch.period_to = nextPeriodTo;
     if (nextStatus) patch.status = nextStatus;
+    if (Object.prototype.hasOwnProperty.call(body, 'advance_payment_ids') || Object.prototype.hasOwnProperty.call(body, 'advancePaymentIds')) {
+      patch.advance_payment_ids = nextAdvancePaymentIds;
+    }
     if (nextStatus === 'calculated') patch.calculated_at = new Date().toISOString();
     if (nextStatus === 'reviewed') patch.reviewed_at = new Date().toISOString();
     if (nextStatus === 'exported') patch.exported_at = new Date().toISOString();
     if (nextStatus === 'sent') patch.sent_at = new Date().toISOString();
 
-    const { error: updateError } = await supabase
-      .from('utility_settlements')
-      .update(patch)
-      .eq('id', id)
-      .eq('owner_id', req.user.id);
+    const { error: updateError } = await updateSettlementWithFallback(req.user.id, id, patch);
 
     if (updateError) return res.status(500).json({ error: 'Failed to update settlement.', details: updateError.message });
 
@@ -379,7 +429,14 @@ router.post('/billing/settlements/:id/calculate', async (req, res) => {
     if (settlementError) return res.status(500).json({ error: 'Failed to load settlement.', details: settlementError.message });
     if (!settlement) return res.status(404).json({ error: 'Settlement not found.' });
 
-    const advancesPaid = await computeAdvancesPaid(req.user.id, settlement.tenant_id, settlement.property_id, settlement.period_from, settlement.period_to);
+    const advancesPaid = await computeAdvancesPaid(
+      req.user.id,
+      settlement.tenant_id,
+      settlement.property_id,
+      settlement.period_from,
+      settlement.period_to,
+      settlement.advance_payment_ids,
+    );
     const actualCostTotal = (settlement.items || []).reduce((sum, item) => sum + toNumber(item.actual_cost), 0);
     const balanceTotal = advancesPaid - actualCostTotal;
 

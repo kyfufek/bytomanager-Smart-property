@@ -9,10 +9,10 @@ import { apiFetch } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
 
 const mockDocs = [
-  { id: 1, name: "Najemni smlouva 2025 - Krejci", type: "PDF", context: "Najemnik Jan Krejci", action: "Polozit dotaz ke smlouve" },
-  { id: 2, name: "Najemni smlouva 2024 - Nova", type: "PDF", context: "Najemnice Petra Nova", action: "Zkontrolovat dodatky" },
-  { id: 3, name: "Pojistna smlouva - Praha", type: "PDF", context: "Nemovitost Praha 2", action: "Shrnout kryti" },
-  { id: 4, name: "Uctenka - Oprava elektroinstalace", type: "PDF", context: "Servisni zasah", action: "Pouzit jako podklad" },
+  { id: 1, name: "Najemni smlouva 2025 - Krejci", type: "PDF", context: "Najemnik Jan Krejci", tenant: "Jan Krejci", unit: "Byt 2+kk", action: "Polozit dotaz ke smlouve" },
+  { id: 2, name: "Najemni smlouva 2024 - Nova", type: "PDF", context: "Najemnice Petra Nova", tenant: "Petra Nova", unit: "Byt 3+1", action: "Zkontrolovat dodatky" },
+  { id: 3, name: "Pojistna smlouva - Praha", type: "PDF", context: "Nemovitost Praha 2", tenant: null, unit: "Dum Praha 2", action: "Shrnout kryti" },
+  { id: 4, name: "Uctenka - Oprava elektroinstalace", type: "PDF", context: "Servisni zasah", tenant: null, unit: "Spolecne prostory", action: "Pouzit jako podklad" },
 ];
 
 type ChatRole = "user" | "ai";
@@ -153,10 +153,14 @@ export default function DocumentsPage() {
                     <p className="text-sm font-medium truncate">{doc.name}</p>
                     <p className="text-xs text-muted-foreground">{doc.type}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{doc.context}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {doc.tenant ? <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">{doc.tenant}</span> : null}
+                      {doc.unit ? <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">{doc.unit}</span> : null}
+                    </div>
                   </div>
                 </div>
                 <div className="mt-3 flex gap-2">
-                  <Button variant="outline" size="sm" className="flex-1" onClick={() => setChatInput(`Vysvetli mi dokument: ${doc.name}`)}>
+                  <Button variant="outline" size="sm" className="flex-1" onClick={() => setChatInput(`Vysvetli mi dokument ${doc.name}${doc.tenant ? ` pro najemnika ${doc.tenant}` : ""}${doc.unit ? ` k jednotce ${doc.unit}` : ""}.`)}>
                     Otevrit v chatu
                   </Button>
                   <Button variant="ghost" size="sm" className="flex-1" onClick={() => toast({ title: "Akce pripravljena", description: doc.action })}>

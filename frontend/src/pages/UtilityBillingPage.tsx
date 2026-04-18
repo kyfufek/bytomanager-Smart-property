@@ -20,7 +20,7 @@ type HistoryStatusFilter = WorkflowStatus | "all";
 
 type TenantItem = { id: string; full_name: string; property_id: string | null };
 type PropertyItem = { id: string; name: string };
-type PaymentItem = { id?: string; tenant_id: string; property_id?: string | null; amount: number; status: string; due_date: string; paid_date: string | null; note?: string | null };
+type PaymentItem = { id?: string; tenant_id: string; property_id?: string | null; amount: number; status: string; due_date: string; paid_date: string | null; note?: string | null; payment_type?: string | null };
 type AllocationMethod = "persons" | "area" | "meter" | "fixed";
 type SettlementItem = { id?: string; service_name: string; allocation_method?: AllocationMethod; advances_paid: number; actual_cost: number; difference: number; note: string | null; sort_order: number };
 type Settlement = {
@@ -44,14 +44,18 @@ type Settlement = {
   reviewed_at?: string | null;
   exported_at?: string | null;
   sent_at?: string | null;
+  advance_payment_ids?: string[];
   items?: SettlementItem[];
 };
 
 const baseItems: SettlementItem[] = [
-  { service_name: "Voda", allocation_method: "meter", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 0 },
+  { service_name: "Voda a stocne", allocation_method: "meter", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 0 },
   { service_name: "Teplo", allocation_method: "area", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 1 },
-  { service_name: "Elektrina spolecnych prostor", allocation_method: "area", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 2 },
-  { service_name: "Uklid a odvoz odpadu", allocation_method: "persons", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 3 },
+  { service_name: "Tepla voda", allocation_method: "meter", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 2 },
+  { service_name: "Elektrina spolecnych prostor", allocation_method: "area", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 3 },
+  { service_name: "Uklid spolecnych prostor", allocation_method: "area", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 4 },
+  { service_name: "Odvoz odpadu", allocation_method: "persons", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 5 },
+  { service_name: "Vytah", allocation_method: "persons", advances_paid: 0, actual_cost: 0, difference: 0, note: null, sort_order: 6 },
 ];
 
 function formatCurrency(value: number) {
@@ -102,6 +106,12 @@ function allocationMethodLabel(value: AllocationMethod | undefined) {
   }[value ?? "fixed"];
 }
 
+function paymentTypeLooksLikeUtilityAdvance(value: string | null | undefined) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return ["service", "services", "utility", "utilities", "zalohy", "zaloha", "sluzby", "sluzba"].some((token) => normalized.includes(token));
+}
+
 export default function UtilityBillingPage() {
   const [mode, setMode] = useState<BillingMode>("manual");
   const [tenants, setTenants] = useState<TenantItem[]>([]);
@@ -117,6 +127,7 @@ export default function UtilityBillingPage() {
   const [periodTo, setPeriodTo] = useState("");
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<SettlementItem[]>(baseItems);
+  const [selectedAdvancePaymentIds, setSelectedAdvancePaymentIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -139,12 +150,36 @@ export default function UtilityBillingPage() {
     });
   }, [payments, periodFrom, periodTo, propertyId, tenantId]);
 
-  const computedAdvances = useMemo(() => {
-    return paymentsInPeriod.reduce((sum, payment) => {
-      if (payment.status !== "paid") return sum;
-      return sum + Number(payment.amount || 0);
-    }, 0);
+  const defaultAdvancePaymentIds = useMemo(() => {
+    const paidPayments = paymentsInPeriod.filter((payment) => payment.status === "paid" && payment.id);
+    const utilityTaggedPayments = paidPayments.filter((payment) => paymentTypeLooksLikeUtilityAdvance(payment.payment_type));
+    return (utilityTaggedPayments.length > 0 ? utilityTaggedPayments : paidPayments).map((payment) => String(payment.id));
   }, [paymentsInPeriod]);
+  const usesLoadedSettlementContext = Boolean(
+    selectedId
+    && selected
+    && tenantId === selected.tenant_id
+    && propertyId === selected.property_id
+    && periodFrom === selected.period_from
+    && periodTo === selected.period_to,
+  );
+
+  useEffect(() => {
+    setSelectedAdvancePaymentIds(
+      usesLoadedSettlementContext && selected?.advance_payment_ids?.length
+        ? selected.advance_payment_ids
+        : defaultAdvancePaymentIds,
+    );
+  }, [defaultAdvancePaymentIds, selected?.advance_payment_ids, usesLoadedSettlementContext]);
+
+  const selectedAdvancePayments = useMemo(() => {
+    const selectedIds = new Set(selectedAdvancePaymentIds);
+    return paymentsInPeriod.filter((payment) => payment.status === "paid" && payment.id && selectedIds.has(String(payment.id)));
+  }, [paymentsInPeriod, selectedAdvancePaymentIds]);
+
+  const computedAdvances = useMemo(() => {
+    return selectedAdvancePayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  }, [selectedAdvancePayments]);
 
   const actualTotal = useMemo(() => items.reduce((sum, item) => sum + Number(item.actual_cost || 0), 0), [items]);
   const balance = computedAdvances - actualTotal;
@@ -156,7 +191,7 @@ export default function UtilityBillingPage() {
     return history.filter((settlement) => historyStatusFilter === "all" || settlement.status === historyStatusFilter);
   }, [history, historyStatusFilter]);
 
-  const importRows = useMemo(() => paymentsInPeriod.slice(0, 8), [paymentsInPeriod]);
+  const importRows = useMemo(() => paymentsInPeriod, [paymentsInPeriod]);
   const importPaidTotal = useMemo(() => importRows.filter((payment) => payment.status === "paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0), [importRows]);
   const issueDate = selected?.created_at ? selected.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10);
   const settlementDueDate = useMemo(() => {
@@ -165,9 +200,25 @@ export default function UtilityBillingPage() {
     return baseDate.toISOString().slice(0, 10);
   }, [issueDate]);
 
+  function toggleAdvancePayment(paymentId: string) {
+    setSelectedAdvancePaymentIds((current) => (
+      current.includes(paymentId)
+        ? current.filter((item) => item !== paymentId)
+        : [...current, paymentId]
+    ));
+  }
+
+  function selectAllAdvancePayments() {
+    setSelectedAdvancePaymentIds(defaultAdvancePaymentIds);
+  }
+
+  function clearAdvancePayments() {
+    setSelectedAdvancePaymentIds([]);
+  }
+
   function transferImportSummaryToNotes() {
-    const lines = importRows.map((payment) => `- ${formatDate(payment.due_date)} | ${formatCurrency(payment.amount)} | ${payment.status}${payment.note ? ` | ${payment.note}` : ""}`);
-    const summary = [`Import podkladu pro vyuctovani:`, ...lines].join("\n");
+    const lines = selectedAdvancePayments.map((payment) => `- ${formatDate(payment.due_date)} | ${formatCurrency(payment.amount)} | zahrnuto do zaloh${payment.note ? ` | ${payment.note}` : ""}`);
+    const summary = [`Import podkladu pro vyuctovani:`, `- vybrane zalohy: ${selectedAdvancePayments.length} plateb / ${formatCurrency(computedAdvances)}`, ...lines].join("\n");
     setNotes((current) => (current.trim() ? `${current}\n\n${summary}` : summary));
     setMode("manual");
     toast({ title: "Podklady preneseny", description: "Souhrn importnich plateb byl vlozen do interni poznamky vyuctovani." });
@@ -221,6 +272,7 @@ export default function UtilityBillingPage() {
           <p><strong>Zuctovaci obdobi:</strong> ${formatDate(periodFrom)} - ${formatDate(periodTo)}</p>
           <p><strong>Datum vystaveni:</strong> ${formatDate(issueDate)}</p>
           <p><strong>Termin vyporadani:</strong> ${formatDate(settlementDueDate)}</p>
+          <p><strong>Zalohy zahrnute do souhrnu:</strong> ${selectedAdvancePayments.length} uhrazenych plateb / ${formatCurrency(computedAdvances)}</p>
 
           <table>
             <thead>
@@ -230,7 +282,7 @@ export default function UtilityBillingPage() {
                 <th>Prijate zalohy</th>
                 <th>Skutecne naklady</th>
                 <th>Rozdil</th>
-                <th>Poznamka</th>
+                <th>Poznamka / podklad</th>
               </tr>
             </thead>
             <tbody>${rowsHtml}</tbody>
@@ -315,6 +367,7 @@ export default function UtilityBillingPage() {
     setPeriodTo("");
     setNotes("");
     setItems(baseItems);
+    setSelectedAdvancePaymentIds([]);
   }
 
   async function reloadSettlementHistory(preferredId?: string) {
@@ -346,6 +399,7 @@ export default function UtilityBillingPage() {
     setPeriodTo(detail.period_to);
     setNotes(detail.notes ?? "");
     setItems(detail.items?.length ? detail.items : baseItems);
+    setSelectedAdvancePaymentIds(detail.advance_payment_ids ?? []);
     setMode("manual");
   }
 
@@ -367,7 +421,17 @@ export default function UtilityBillingPage() {
 
     try {
       setSaving(true);
-      const payload = { tenant_id: tenantId, property_id: propertyId, period_from: periodFrom, period_to: periodTo, title, notes, status: nextStatus, items: normalizeSettlementItems(items) };
+      const payload = {
+        tenant_id: tenantId,
+        property_id: propertyId,
+        period_from: periodFrom,
+        period_to: periodTo,
+        title,
+        notes,
+        status: nextStatus,
+        items: normalizeSettlementItems(items),
+        advance_payment_ids: selectedAdvancePaymentIds,
+      };
       const response = selectedId
         ? await apiFetch(`/api/billing/settlements/${selectedId}`, { method: "PUT", body: JSON.stringify(payload) })
         : await apiFetch("/api/billing/settlements", { method: "POST", body: JSON.stringify(payload) });
@@ -377,6 +441,7 @@ export default function UtilityBillingPage() {
       setSelectedId(detail.id);
       setSelected(detail);
       setItems(detail.items?.length ? detail.items : normalizeSettlementItems(items));
+      setSelectedAdvancePaymentIds(detail.advance_payment_ids ?? selectedAdvancePaymentIds);
       await reloadSettlementHistory(detail.id);
       toast({ title: "Vyuctovani ulozeno", description: `Aktualni stav: ${statusLabel(detail.status)}.` });
     } catch {
@@ -581,13 +646,13 @@ export default function UtilityBillingPage() {
                     <SummaryLine label="Preplatek / nedoplatek" value={`${resultLabel(resultType)} ${formatCurrency(Math.abs(balance))}`} tone={resultType === "nedoplatek" ? "danger" : "success"} />
                     <SummaryLine label="Stav workflow" value={statusLabel(selected?.status ?? "draft")} />
                     <SummaryLine label="Obdobi" value={`${formatDate(periodFrom)} - ${formatDate(periodTo)}`} />
-                    <SummaryLine label="PDF podklad" value={`${items.filter((item) => item.service_name.trim()).length} polozek`} />
+                    <SummaryLine label="PDF podklad" value={`${items.filter((item) => item.service_name.trim()).length} polozek / ${selectedAdvancePayments.length} zaloh`} />
                     <SummaryLine label="Datum vystaveni" value={formatDate(issueDate)} />
                     <SummaryLine label="Termin vyporadani" value={formatDate(settlementDueDate)} />
                   </div>
 
                   <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                    PDF vznikne z aktualne vybraneho najemnika, jednotky, zuctovaciho obdobi, teto tabulky polozek a z prave vypocteneho souhrnu.
+                    PDF vznikne z aktualne vybraneho najemnika, jednotky, zuctovaciho obdobi, teto tabulky polozek a z prave vypocteneho souhrnu. Do souhrnu zaloh se zapocitavaji jen vybrane uhrazene platby z importu.
                   </div>
 
                   <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
@@ -703,13 +768,14 @@ export default function UtilityBillingPage() {
                 <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-4 md:flex-row md:items-start md:justify-between">
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Pomocny vstup pro rucni vyuctovani</p>
-                    <p className="text-sm text-muted-foreground">Vybrane platby se automaticky filtruji podle najemnika, jednotky a zuctovaciho obdobi. Souhrn muzete prenest do interni poznamky a pouzit ho jako podklad pro finalni tabulku polozek.</p>
+                    <p className="text-sm text-muted-foreground">Platby se filtruji podle najemnika, jednotky a zuctovaciho obdobi. Oznacene uhrazene platby se zapocitavaji do souhrnu zaloh, ostatni mohou zustat jen jako podklad.</p>
                   </div>
                   <div className="grid gap-2 text-sm text-muted-foreground md:min-w-[260px]">
                     <div><span className="font-medium text-foreground">Najemnik:</span> {selectedTenant?.full_name || "Nevybran"}</div>
                     <div><span className="font-medium text-foreground">Nemovitost / jednotka:</span> {selectedProperty?.name || "Nevybrana"}</div>
                     <div><span className="font-medium text-foreground">Obdobi:</span> {periodFrom ? formatDate(periodFrom) : "-"} - {periodTo ? formatDate(periodTo) : "-"}</div>
-                    <div><span className="font-medium text-foreground">Prijate zalohy v obdobi:</span> {formatCurrency(importPaidTotal)}</div>
+                    <div><span className="font-medium text-foreground">Uhrazene platby v obdobi:</span> {formatCurrency(importPaidTotal)}</div>
+                    <div><span className="font-medium text-foreground">Vybrane zalohy do souhrnu:</span> {formatCurrency(computedAdvances)}</div>
                   </div>
                 </div>
                 {!tenantId ? (
@@ -720,15 +786,24 @@ export default function UtilityBillingPage() {
                   <div className="space-y-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div className="text-sm text-muted-foreground">
-                        Kazda nalezena platba je podklad pro zalohy v tomto vyuctovani. Zatim ji neprenasime primo do jednotlivych sluzeb, ale muzete si ji jednim kliknutim propsat do interni poznamky.
+                        Oznacte, ktere uhrazene platby se maji pouzit jako zalohy do vyuctovani. Vyber se propsise do souhrnu i do PDF nahledu, ale jednotlive polozky sluzeb zustavaji editovatelne rucne.
                       </div>
-                      <Button variant="outline" onClick={transferImportSummaryToNotes}>
-                        Prenest souhrn do poznamky
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" onClick={selectAllAdvancePayments}>
+                          Vybrat vsechny uhrazene
+                        </Button>
+                        <Button variant="outline" onClick={clearAdvancePayments}>
+                          Vymazat vyber
+                        </Button>
+                        <Button variant="outline" onClick={transferImportSummaryToNotes}>
+                          Prenest souhrn do poznamky
+                        </Button>
+                      </div>
                     </div>
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead>Pouzit</TableHead>
                           <TableHead>Splatnost</TableHead>
                           <TableHead>Najemnik / jednotka</TableHead>
                           <TableHead>Castka</TableHead>
@@ -740,6 +815,15 @@ export default function UtilityBillingPage() {
                       <TableBody>
                         {importRows.map((payment) => (
                           <TableRow key={String(payment.id)}>
+                            <TableCell>
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-input"
+                                checked={payment.status === "paid" && payment.id ? selectedAdvancePaymentIds.includes(String(payment.id)) : false}
+                                disabled={payment.status !== "paid" || !payment.id}
+                                onChange={() => payment.id && toggleAdvancePayment(String(payment.id))}
+                              />
+                            </TableCell>
                             <TableCell>{formatDate(payment.due_date)}</TableCell>
                             <TableCell>
                               <div className="space-y-1">
@@ -754,7 +838,10 @@ export default function UtilityBillingPage() {
                             </TableCell>
                             <TableCell>
                               <div className="space-y-1">
-                                <Badge variant="outline">Zahrnuto do zaloh</Badge>
+                                <Badge variant="outline">
+                                  {payment.status === "paid" && payment.id && selectedAdvancePaymentIds.includes(String(payment.id)) ? "Zahrnuto do zaloh" : "Jen podklad"}
+                                </Badge>
+                                {payment.payment_type ? <div className="text-xs text-muted-foreground">Typ platby: {payment.payment_type}</div> : null}
                                 {payment.note ? <div className="text-xs text-muted-foreground">{payment.note}</div> : <div className="text-xs text-muted-foreground">Bez doplnujici poznamky</div>}
                               </div>
                             </TableCell>
@@ -841,7 +928,7 @@ function ServiceItemsEditor({ items, onChange }: { items: SettlementItem[]; onCh
           <TableHead className="text-right">Prijate zalohy</TableHead>
           <TableHead className="text-right">Skutecne naklady</TableHead>
           <TableHead className="text-right">Rozdil</TableHead>
-          <TableHead>Poznamka</TableHead>
+          <TableHead>Poznamka / podklad</TableHead>
           <TableHead className="text-right">Akce</TableHead>
         </TableRow>
       </TableHeader>
@@ -873,7 +960,7 @@ function ServiceItemsEditor({ items, onChange }: { items: SettlementItem[]; onCh
               {formatCurrency(Math.abs(item.difference))}
             </TableCell>
             <TableCell>
-              <Input value={item.note || ""} onChange={(event) => update(index, "note", event.target.value)} />
+              <Input value={item.note || ""} onChange={(event) => update(index, "note", event.target.value)} placeholder="Faktura, odecty meridel, podklad SVJ..." />
             </TableCell>
             <TableCell className="text-right">
               <Button variant="ghost" size="sm" onClick={() => remove(index)} disabled={items.length === 1}>
