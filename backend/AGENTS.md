@@ -6,6 +6,7 @@ Backend je Node.js + Express API server.
 
 - vstupni soubor: `server.js`
 - port: `5000` (nebo `PORT` z `.env`)
+- produkcni image: `backend/Dockerfile`
 - health endpoint: `GET /api/health`
 - endpoint nemovitosti: `GET /api/properties`
 - endpoint najemnici: `GET /api/tenants`
@@ -40,6 +41,20 @@ Backend je Node.js + Express API server.
 ## Udrzba kontextu
 
 Pokud pridas novou funkci, endpoint nebo zmenis strukturu projektu, aktualizuj prislusny AGENTS.md.
+
+## Docker nasazeni
+
+- Backend je v Docker Compose definovan jako sluzba `backend`.
+- Compose mu predava env z root `/.env` pres `env_file` a `environment`.
+- Kriticke promenne pro start:
+  - `PORT`
+  - `SUPABASE_URL`
+  - `SUPABASE_SERVICE_ROLE_KEY`
+  - volitelne LLM promene (`LLM_*`, `OPENAI_*`)
+- Pri Docker troubleshooting over:
+  - `docker logs bytomanager-backend`
+  - `docker exec bytomanager-backend printenv`
+  - `GET /api/health`
 
 ## Platby v1 (internal tracking)
 

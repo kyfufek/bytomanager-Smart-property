@@ -8,6 +8,16 @@ Frontend je aplikace postavena na React + Vite + Tailwind CSS.
 2. Nainstaluj zavislosti: `npm install`
 3. Spust dev server: `npm run dev`
 
+## Docker nasazeni
+
+- Produkcni image je definovany ve `frontend/Dockerfile`.
+- Build-time env se predavaji z root `docker-compose.yml` jako build args:
+  - `VITE_API_URL`
+  - `VITE_SUPABASE_URL`
+  - `VITE_SUPABASE_PUBLISHABLE_KEY`
+  - `VITE_SUPABASE_ANON_KEY`
+- Vystupni build se servuje pres nginx s SPA fallback konfiguraci v `frontend/nginx.conf`.
+
 ## API napojeni
 
 - `DashboardPage`, `PropertiesPage`, `TenantsPage` pouzivaji `apiFetch` helper z `src/lib/api.ts`

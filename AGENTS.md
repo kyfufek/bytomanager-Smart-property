@@ -10,6 +10,7 @@ Projekt pouziva oddelenou strukturu pro frontend a backend v jednom repozitari (
 /
  frontend/          # React + Vite + Tailwind CSS aplikace
  backend/           # Node.js + Express backend server
+ docker-compose.yml # Produkcni Docker Compose stack (Traefik + frontend + backend)
  .env.example       # Vzor root promennych
  package.json       # Root skripty (frontend/backend maji vlastni package.json)
 ```
@@ -46,6 +47,21 @@ npm run dev
 
 - Frontend bezi na: `http://localhost:8080` (nastaveno ve `frontend/vite.config.ts`)
 - Backend bezi na: `http://localhost:5000`
+
+### 3. Docker nasazeni
+V korenovem adresari:
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+- Compose stack obsahuje `traefik`, `frontend`, `backend`
+- Traefik terminates HTTPS a routuje:
+  - frontend na `https://<TRAEFIK_DOMAIN>`
+  - backend na `https://<TRAEFIK_DOMAIN>/api/*`
+- Produkcni frontend se builduje z `frontend/Dockerfile` a servuje pres nginx
+- Produkcni backend bezi z `backend/Dockerfile`
 
 ## Architecture & Tech Stack
 ### Frontend
@@ -165,10 +181,22 @@ Kazda cast aplikace ma vlastni `.env` soubor pro lokalni vyvoj. Nikdy je necommi
 
 ### Root (`/.env.example`)
 ```env
-VITE_API_URL=http://localhost:5000
+TRAEFIK_DOMAIN=example.com
+LETSENCRYPT_EMAIL=admin@example.com
+VITE_API_URL=https://example.com
 PORT=5000
-SUPABASE_URL=
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=
+VITE_SUPABASE_ANON_KEY=
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=
 SUPABASE_ANON_KEY=
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o-mini
+LLM_TEMPERATURE=0.3
+LLM_MAX_TOKENS=800
+LLM_TIMEOUT_MS=30000
+OPENAI_API_KEY=
 ```
 
 ### Backend (`backend/.env`)
