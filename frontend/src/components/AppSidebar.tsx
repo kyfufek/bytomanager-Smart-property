@@ -5,6 +5,7 @@ import {
   Wallet,
   Receipt,
   Scale,
+  Mail,
   Settings,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
@@ -28,6 +29,7 @@ const navItems = [
   { title: "Nájemníci & AI", url: "/tenants", icon: Users },
   { title: "Finance", url: "/finance", icon: Wallet },
   { title: "Vyúčtování služeb", url: "/finance/utility-billing", icon: Receipt },
+  { title: "Kontakt", url: "/kontakt", icon: Mail },
   { title: "AI Právník & Dokumenty", url: "/documents", icon: Scale },
   { title: "Nastavení", url: "/settings", icon: Settings },
 ];

@@ -16,6 +16,7 @@ Backend je Node.js + Express API server.
   - `POST /api/payments`
   - `PUT /api/payments/:id`
 - endpoint profil: `GET /api/profile`, `PUT /api/profile`
+- endpoint kontakt: `POST /api/contact` (validace `name`, `email`, `message`, nasledny forward na `N8N_CONTACT_WEBHOOK_URL`)
 - endpoint AI chat: `POST /api/chat` (auth required, prijima `message` + `history`, vraci `answer`)
 - endpoint pokrocile vyuctovani: `POST /api/billing/generate-report` (osobomesice, vodomery, prime naklady, zalohy)
 

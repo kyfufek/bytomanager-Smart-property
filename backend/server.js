@@ -6,6 +6,7 @@ const propertiesRoutes = require('./routes/properties');
 const tenantsRoutes = require('./routes/tenants');
 const paymentsRouter = require('./routes/payments');
 const profileRoutes = require('./routes/profile');
+const contactRoutes = require('./routes/contact');
 const aiChatRoutes = require('./routes/aiChat');
 const advancedBillingRoutes = require('./routes/advancedBilling');
 const utilitySettlementsRoutes = require('./routes/utilitySettlements');
@@ -20,6 +21,7 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+app.use('/api', contactRoutes);
 app.use('/api', propertiesRoutes);
 app.use('/api', tenantsRoutes);
 app.use('/api', profileRoutes);

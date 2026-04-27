@@ -13,6 +13,7 @@ import TenantsPage from "./pages/TenantsPage";
 import FinancePage from "./pages/FinancePage";
 import UtilityBillingPage from "./pages/UtilityBillingPage";
 import DocumentsPage from "./pages/DocumentsPage";
+import ContactPage from "./pages/ContactPage";
 import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
 
@@ -74,6 +75,16 @@ const App = () => (
                 <ProtectedRoute>
                   <AppLayout>
                     <UtilityBillingPage />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/kontakt"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <ContactPage />
                   </AppLayout>
                 </ProtectedRoute>
               }

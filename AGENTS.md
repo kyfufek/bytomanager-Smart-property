@@ -97,6 +97,7 @@ Slozka obsahuje standardni Vite/React strukturu vytvorenou nastrojem Lovable. Zm
   - Dashboard
   - Finance (interni historie plateb)
   - Vyuctovani sluzeb
+  - Kontakt
 - Platby se zadavaji rucne pres aplikaci (zadne bankovni API / open banking).
 - Vyuctovani sluzeb je workflow modul, ktery je vazany na:
   - najemnika (`tenant_id`)
@@ -129,6 +130,11 @@ backend/
 ### Aktualni stav a ukoly
 - Server bezi nad Supabase a vraci data pres auth-protected endpointy (napr. `/api/properties`, `/api/tenants`, `/api/tenants/:id`, `/api/payments`).
 - Existuji i endpointy pro AI chat a pokrocile vyuctovani.
+- Kontaktni formular:
+  - `POST /api/contact`
+  - prijima `name`, `email`, `message`
+  - backend pouze validuje payload a preposila JSON na `N8N_CONTACT_WEBHOOK_URL`
+  - pri nedostupnem n8n webhooku vraci `502`
 - Chat endpoint `POST /api/chat` je chraneny auth middleware a pouziva LLM service vrstvu.
 - Platebni vrstva:
   - `GET /api/payments`
