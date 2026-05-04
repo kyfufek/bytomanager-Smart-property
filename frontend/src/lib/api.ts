@@ -25,8 +25,14 @@ export async function apiFetch(path: string, init?: RequestInit) {
     headers.set("Authorization", `Bearer ${session.access_token}`);
   }
 
-  return fetch(buildApiUrl(path), {
+  const response = await fetch(buildApiUrl(path), {
     ...init,
     headers,
   });
+
+  if (response.status === 401) {
+    await supabase.auth.signOut();
+  }
+
+  return response;
 }

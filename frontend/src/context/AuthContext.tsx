@@ -28,18 +28,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
-    supabase.auth
-      .getSession()
-      .then(({ data }) => {
+    async function bootstrapAuth() {
+      try {
+        const {
+          data: { session: initialSession },
+        } = await supabase.auth.getSession();
+
         if (!isMounted) return;
-        setSession(data.session ?? null);
-        setUser(data.session?.user ?? null);
-      })
-      .finally(() => {
+
+        if (!initialSession) {
+          setSession(null);
+          setUser(null);
+          return;
+        }
+
+        // Validate the persisted session against Supabase so the app does not
+        // stay "logged in" locally while backend requests fail with 401.
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (!isMounted) return;
+
+        if (userError || !userData.user) {
+          await supabase.auth.signOut();
+          if (!isMounted) return;
+          setSession(null);
+          setUser(null);
+          return;
+        }
+
+        const {
+          data: { session: verifiedSession },
+        } = await supabase.auth.getSession();
+
+        if (!isMounted) return;
+        setSession(verifiedSession ?? initialSession);
+        setUser(userData.user);
+      } finally {
         if (isMounted) {
           setIsLoading(false);
         }
-      });
+      }
+    }
+
+    void bootstrapAuth();
 
     const {
       data: { subscription },

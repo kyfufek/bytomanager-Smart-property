@@ -17,12 +17,13 @@ type WorkflowStatus = "draft" | "calculated" | "reviewed" | "exported" | "sent";
 type ResultType = "preplatek" | "nedoplatek" | "vyrovnano";
 type BillingMode = "manual" | "import" | "automatic";
 type HistoryStatusFilter = WorkflowStatus | "all";
+type NumericFieldValue = number | "";
 
 type TenantItem = { id: string; full_name: string; property_id: string | null };
 type PropertyItem = { id: string; name: string };
 type PaymentItem = { id?: string; tenant_id: string; property_id?: string | null; amount: number; status: string; due_date: string; paid_date: string | null; note?: string | null; payment_type?: string | null };
 type AllocationMethod = "persons" | "area" | "meter" | "fixed";
-type SettlementItem = { id?: string; service_name: string; allocation_method?: AllocationMethod; advances_paid: number; actual_cost: number; difference: number; note: string | null; sort_order: number };
+type SettlementItem = { id?: string; service_name: string; allocation_method?: AllocationMethod; advances_paid: NumericFieldValue; actual_cost: NumericFieldValue; difference: number; note: string | null; sort_order: number };
 type Settlement = {
   id: string;
   tenant_id: string;
@@ -104,6 +105,15 @@ function allocationMethodLabel(value: AllocationMethod | undefined) {
     meter: "Podle meridla",
     fixed: "Pevna castka",
   }[value ?? "fixed"];
+}
+
+function escapeHtml(value: string | number | null | undefined) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function paymentTypeLooksLikeUtilityAdvance(value: string | null | undefined) {
@@ -226,25 +236,34 @@ export default function UtilityBillingPage() {
 
   function openPdfPreview() {
     if (!tenantId || !propertyId || periodError) {
-      toast({ title: "PDF preview nelze otevrit", description: "Doplnte zakladni udaje a validni obdobi vyuctovani.", variant: "destructive" });
+      toast({ title: "PDF nelze vygenerovat", description: "Doplnte zakladni udaje a validni obdobi vyuctovani.", variant: "destructive" });
       return;
     }
 
     const preview = window.open("", "_blank", "noopener,noreferrer,width=1100,height=900");
     if (!preview) {
-      toast({ title: "Okno s PDF preview se nepodarilo otevrit", description: "Zkontrolujte blokovani vyskakovacich oken v prohlizeci.", variant: "destructive" });
+      toast({ title: "Okno s PDF se nepodarilo otevrit", description: "Zkontrolujte blokovani vyskakovacich oken v prohlizeci.", variant: "destructive" });
       return;
     }
+
+    const safeTitle = escapeHtml(title || "Vyuctovani sluzeb");
+    const safeTenantName = escapeHtml(activeTenantName);
+    const safePropertyName = escapeHtml(activePropertyName);
+    const safeIssueDate = escapeHtml(formatDate(issueDate));
+    const safeSettlementDueDate = escapeHtml(formatDate(settlementDueDate));
+    const safePeriodLabel = escapeHtml(`${formatDate(periodFrom)} - ${formatDate(periodTo)}`);
+    const safeAdvancesSummary = escapeHtml(`${selectedAdvancePayments.length} uhrazenych plateb / ${formatCurrency(computedAdvances)}`);
+    const safeNotes = escapeHtml(notes || "Bez poznamky").replace(/\n/g, "<br/>");
 
     const rowsHtml = items
       .map((item) => `
         <tr>
-          <td>${item.service_name || "-"}</td>
-          <td>${allocationMethodLabel(item.allocation_method)}</td>
-          <td style="text-align:right;">${formatCurrency(item.advances_paid)}</td>
-          <td style="text-align:right;">${formatCurrency(item.actual_cost)}</td>
-          <td style="text-align:right;">${formatCurrency(Math.abs(item.difference))}</td>
-          <td>${item.note || "-"}</td>
+          <td>${escapeHtml(item.service_name || "-")}</td>
+          <td>${escapeHtml(allocationMethodLabel(item.allocation_method))}</td>
+          <td style="text-align:right;">${escapeHtml(formatCurrency(item.advances_paid))}</td>
+          <td style="text-align:right;">${escapeHtml(formatCurrency(item.actual_cost))}</td>
+          <td style="text-align:right;">${escapeHtml(formatCurrency(Math.abs(item.difference)))}</td>
+          <td>${escapeHtml(item.note || "-")}</td>
         </tr>
       `)
       .join("");
@@ -252,9 +271,10 @@ export default function UtilityBillingPage() {
     preview.document.write(`
       <html>
         <head>
-          <title>Vyuctovani sluzeb</title>
+          <title>${safeTitle}</title>
           <style>
-            body { font-family: Arial, sans-serif; color: #111827; padding: 32px; }
+            @page { size: A4; margin: 14mm; }
+            body { font-family: Arial, sans-serif; color: #111827; padding: 24px; }
             h1, h2 { margin: 0 0 12px; }
             p { margin: 4px 0; }
             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
@@ -263,16 +283,32 @@ export default function UtilityBillingPage() {
             .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
             .box { border: 1px solid #d1d5db; padding: 12px; border-radius: 8px; }
             .summary { margin-top: 20px; }
+            .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+            .hint { color: #4b5563; font-size: 12px; }
+            .pill { display: inline-flex; align-items: center; border-radius: 999px; background: #f3f4f6; padding: 6px 10px; font-size: 12px; font-weight: 700; }
+            @media print {
+              body { padding: 0; }
+              .topbar .hint { display: none; }
+            }
           </style>
         </head>
         <body>
-          <h1>${title || "Vyuctovani sluzeb"}</h1>
-          <p><strong>Najemnik:</strong> ${activeTenantName}</p>
-          <p><strong>Nemovitost / jednotka:</strong> ${activePropertyName}</p>
-          <p><strong>Zuctovaci obdobi:</strong> ${formatDate(periodFrom)} - ${formatDate(periodTo)}</p>
-          <p><strong>Datum vystaveni:</strong> ${formatDate(issueDate)}</p>
-          <p><strong>Termin vyporadani:</strong> ${formatDate(settlementDueDate)}</p>
-          <p><strong>Zalohy zahrnute do souhrnu:</strong> ${selectedAdvancePayments.length} uhrazenych plateb / ${formatCurrency(computedAdvances)}</p>
+          <div class="topbar">
+            <div>
+              <h1>${safeTitle}</h1>
+              <p><strong>Najemnik:</strong> ${safeTenantName}</p>
+              <p><strong>Nemovitost / jednotka:</strong> ${safePropertyName}</p>
+            </div>
+            <div>
+              <span class="pill">${escapeHtml(statusLabel(selected?.status ?? "draft"))}</span>
+              <p class="hint">Po otevreni dialogu vyberte "Ulozit jako PDF".</p>
+            </div>
+          </div>
+
+          <p><strong>Zuctovaci obdobi:</strong> ${safePeriodLabel}</p>
+          <p><strong>Datum vystaveni:</strong> ${safeIssueDate}</p>
+          <p><strong>Termin vyporadani:</strong> ${safeSettlementDueDate}</p>
+          <p><strong>Zalohy zahrnute do souhrnu:</strong> ${safeAdvancesSummary}</p>
 
           <table>
             <thead>
@@ -289,22 +325,27 @@ export default function UtilityBillingPage() {
           </table>
 
           <div class="grid summary">
-            <div class="box"><strong>Prijate zalohy</strong><p>${formatCurrency(computedAdvances)}</p></div>
-            <div class="box"><strong>Skutecne naklady</strong><p>${formatCurrency(actualTotal)}</p></div>
-            <div class="box"><strong>Vysledek</strong><p>${resultLabel(resultType)} ${formatCurrency(Math.abs(balance))}</p></div>
-            <div class="box"><strong>Stav workflow</strong><p>${statusLabel(selected?.status ?? "draft")}</p></div>
+            <div class="box"><strong>Prijate zalohy</strong><p>${escapeHtml(formatCurrency(computedAdvances))}</p></div>
+            <div class="box"><strong>Skutecne naklady</strong><p>${escapeHtml(formatCurrency(actualTotal))}</p></div>
+            <div class="box"><strong>Vysledek</strong><p>${escapeHtml(resultLabel(resultType))} ${escapeHtml(formatCurrency(Math.abs(balance)))}</p></div>
+            <div class="box"><strong>Stav workflow</strong><p>${escapeHtml(statusLabel(selected?.status ?? "draft"))}</p></div>
           </div>
 
           <div class="box" style="margin-top:20px;">
             <strong>Poznamka / podklady</strong>
-            <p>${(notes || "Bez poznamky").replace(/\n/g, "<br/>")}</p>
+            <p>${safeNotes}</p>
           </div>
+          <script>
+            window.onload = () => {
+              setTimeout(() => window.print(), 150);
+            };
+          </script>
         </body>
       </html>
     `);
     preview.document.close();
     preview.focus();
-    toast({ title: "PDF preview pripraveno", description: "Otevrel se tiskovy nahled vyuctovani zalozeny na aktualni tabulce polozek." });
+    toast({ title: "PDF pripraveno", description: "Otevrelo se tiskove okno. V dialogu zvolte Ulozit jako PDF." });
   }
 
   async function loadAll() {
@@ -548,65 +589,97 @@ export default function UtilityBillingPage() {
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">A) Zakladni udaje</CardTitle>
                 </CardHeader>
-                <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Nazev vyuctovani</label>
-                    <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Nazev vyuctovani" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Najemnik</label>
-                    <select
-                      className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                      value={tenantId}
-                      onChange={(event) => {
-                        const nextTenant = tenants.find((tenant) => tenant.id === event.target.value) ?? null;
-                        setTenantId(event.target.value);
-                        setPropertyId(nextTenant?.property_id ?? "");
-                      }}
-                    >
-                      <option value="">Vyberte najemnika</option>
-                      {tenants.map((tenant) => (
-                        <option key={tenant.id} value={tenant.id}>
-                          {tenant.full_name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Nemovitost / jednotka</label>
-                    <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={propertyId} onChange={(event) => setPropertyId(event.target.value)}>
-                      <option value="">Vyberte nemovitost</option>
-                      {properties.map((property) => (
-                        <option key={property.id} value={property.id}>
-                          {property.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Obdobi od</label>
-                    <Input type="date" value={periodFrom} onChange={(event) => setPeriodFrom(event.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Obdobi do</label>
-                    <Input type="date" value={periodTo} onChange={(event) => setPeriodTo(event.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Stav workflow</label>
-                    <div className="flex h-10 items-center">
-                      <Badge variant="secondary">{statusLabel(selected?.status ?? "draft")}</Badge>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.8fr)]">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2 md:col-span-2">
+                        <label className="text-sm font-medium">Nazev vyuctovani</label>
+                        <Input
+                          value={title}
+                          onChange={(event) => setTitle(event.target.value)}
+                          placeholder="Nazev vyuctovani"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Najemnik</label>
+                        <select
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          value={tenantId}
+                          onChange={(event) => {
+                            const nextTenant = tenants.find((tenant) => tenant.id === event.target.value) ?? null;
+                            setTenantId(event.target.value);
+                            setPropertyId(nextTenant?.property_id ?? "");
+                          }}
+                        >
+                          <option value="">Vyberte najemnika</option>
+                          {tenants.map((tenant) => (
+                            <option key={tenant.id} value={tenant.id}>
+                              {tenant.full_name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Nemovitost / jednotka</label>
+                        <select
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          value={propertyId}
+                          onChange={(event) => setPropertyId(event.target.value)}
+                        >
+                          <option value="">Vyberte nemovitost</option>
+                          {properties.map((property) => (
+                            <option key={property.id} value={property.id}>
+                              {property.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Obdobi od</label>
+                        <Input type="date" value={periodFrom} onChange={(event) => setPeriodFrom(event.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Obdobi do</label>
+                        <Input type="date" value={periodTo} onChange={(event) => setPeriodTo(event.target.value)} />
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border bg-muted/20 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Stav workflow</p>
+                          <Badge variant="secondary">{statusLabel(selected?.status ?? "draft")}</Badge>
+                        </div>
+                        <Button variant="outline" onClick={() => resetDraft()}>
+                          Novy koncept
+                        </Button>
+                      </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                        <SummaryLine label="Najemnik" value={selectedTenant?.full_name ?? "Nevybran"} />
+                        <SummaryLine label="Nemovitost / jednotka" value={selectedProperty?.name ?? "Nevybrana"} />
+                        <SummaryLine
+                          label="Zuctovaci obdobi"
+                          value={
+                            periodFrom && periodTo
+                              ? `${formatDate(periodFrom)} - ${formatDate(periodTo)}`
+                              : "Zatim nedoplneno"
+                          }
+                        />
+                      </div>
                     </div>
                   </div>
-                  <div className="md:col-span-2 xl:col-span-3">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <label className="text-sm font-medium">Interni poznamka</label>
-                      <Button variant="outline" onClick={() => resetDraft()}>
-                        Novy koncept
-                      </Button>
-                    </div>
-                    <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Interni poznamka k vyuctovani" rows={3} />
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Interni poznamka</label>
+                    <Textarea
+                      value={notes}
+                      onChange={(event) => setNotes(event.target.value)}
+                      placeholder="Interni poznamka k vyuctovani"
+                      rows={4}
+                    />
                   </div>
-                  {inlinePeriodError ? <p className="md:col-span-2 xl:col-span-3 text-sm text-destructive">{inlinePeriodError}</p> : null}
+
+                  {inlinePeriodError ? <p className="text-sm text-destructive">{inlinePeriodError}</p> : null}
                 </CardContent>
               </Card>
 
@@ -683,11 +756,11 @@ export default function UtilityBillingPage() {
                   </div>
 
                   {!canPersistSettlements ? (
-                    <p className="text-sm text-muted-foreground">Generovat PDF otevre tiskovy nahled i bez backend exportu. Workflow akce jako exportovane nebo odeslane ale zustavaji vypnute, dokud nebude dostupna formalni settlement cast backendu a DB.</p>
+                    <p className="text-sm text-muted-foreground">Generovat PDF otevre tiskovy dialog i bez backend exportu. Workflow akce jako exportovane nebo odeslane ale zustavaji vypnute, dokud nebude dostupna formalni settlement cast backendu a DB.</p>
                   ) : !selectedId ? (
-                    <p className="text-sm text-muted-foreground">Postup je jednoduchy: vyplnte udaje, doplnte polozky, spocitejte vysledek a pak otevrite PDF preview. Pro zaznamenani do workflow je potom potreba koncept ulozit.</p>
+                    <p className="text-sm text-muted-foreground">Postup je jednoduchy: vyplnte udaje, doplnte polozky, spocitejte vysledek a pak otevrete tiskovy dialog pro ulozeni do PDF. Pro zaznamenani do workflow je potom potreba koncept ulozit.</p>
                   ) : (
-                    <p className="text-sm text-muted-foreground">Generovat PDF otevira tiskovy nahled z aktualniho formulare a tabulky polozek. Tlacitko Oznacit jako exportovane zaznamena stav ve workflow.</p>
+                    <p className="text-sm text-muted-foreground">Generovat PDF otevira tiskovy dialog z aktualniho formulare a tabulky polozek. Tlacitko Oznacit jako exportovane zaznamena stav ve workflow.</p>
                   )}
                 </CardContent>
               </Card>
@@ -907,12 +980,32 @@ function ServiceItemsEditor({ items, onChange }: { items: SettlementItem[]; onCh
       items.map((item, itemIndex) => {
         if (itemIndex !== index) return item;
         const next = { ...item, [field]: value } as SettlementItem;
-        next.advances_paid = Number(next.advances_paid || 0);
-        next.actual_cost = Number(next.actual_cost || 0);
-        next.difference = next.advances_paid - next.actual_cost;
+        const normalizedAdvances = Number(next.advances_paid || 0);
+        const normalizedActualCost = Number(next.actual_cost || 0);
+        next.difference = normalizedAdvances - normalizedActualCost;
         return next;
       }),
     );
+  };
+
+  const updateNumericField = (index: number, field: "advances_paid" | "actual_cost", value: string) => {
+    onChange(
+      items.map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+        const parsedValue = value === "" ? "" : Number(value);
+        const next = { ...item, [field]: parsedValue } as SettlementItem;
+        const normalizedAdvances = Number(next.advances_paid || 0);
+        const normalizedActualCost = Number(next.actual_cost || 0);
+        next.difference = normalizedAdvances - normalizedActualCost;
+        return next;
+      }),
+    );
+  };
+
+  const restoreNumericFieldDefault = (index: number, field: "advances_paid" | "actual_cost") => {
+    const currentValue = items[index]?.[field];
+    if (currentValue !== "") return;
+    updateNumericField(index, field, "0");
   };
 
   const remove = (index: number) => {
@@ -934,7 +1027,7 @@ function ServiceItemsEditor({ items, onChange }: { items: SettlementItem[]; onCh
       </TableHeader>
       <TableBody>
         {items.map((item, index) => (
-          <TableRow key={`${index}-${item.service_name}`}>
+          <TableRow key={item.id ?? `row-${index}`}>
             <TableCell>
               <Input value={item.service_name} onChange={(event) => update(index, "service_name", event.target.value)} />
             </TableCell>
@@ -951,10 +1044,22 @@ function ServiceItemsEditor({ items, onChange }: { items: SettlementItem[]; onCh
               </select>
             </TableCell>
             <TableCell>
-              <Input type="number" className="text-right" value={item.advances_paid} onChange={(event) => update(index, "advances_paid", Number(event.target.value))} />
+              <Input
+                type="number"
+                className="text-right"
+                value={item.advances_paid}
+                onChange={(event) => updateNumericField(index, "advances_paid", event.target.value)}
+                onBlur={() => restoreNumericFieldDefault(index, "advances_paid")}
+              />
             </TableCell>
             <TableCell>
-              <Input type="number" className="text-right" value={item.actual_cost} onChange={(event) => update(index, "actual_cost", Number(event.target.value))} />
+              <Input
+                type="number"
+                className="text-right"
+                value={item.actual_cost}
+                onChange={(event) => updateNumericField(index, "actual_cost", event.target.value)}
+                onBlur={() => restoreNumericFieldDefault(index, "actual_cost")}
+              />
             </TableCell>
             <TableCell className={cn("text-right font-medium", item.difference < 0 ? "text-destructive" : item.difference > 0 ? "text-success" : "text-muted-foreground")}>
               {formatCurrency(Math.abs(item.difference))}
