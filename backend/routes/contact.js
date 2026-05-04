@@ -1,6 +1,7 @@
 const express = require('express');
 
 const router = express.Router();
+const CONTACT_WEBHOOK_TIMEOUT_MS = 10000;
 
 function normalizeField(value) {
   if (typeof value !== 'string') return '';
@@ -33,9 +34,13 @@ router.post('/contact', async (req, res) => {
     return res.status(502).json({ error: 'Contact webhook is unavailable.' });
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CONTACT_WEBHOOK_TIMEOUT_MS);
+
   try {
     const response = await fetch(webhookUrl, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -53,6 +58,8 @@ router.post('/contact', async (req, res) => {
     return res.status(200).json({ ok: true });
   } catch (error) {
     return res.status(502).json({ error: 'Contact webhook is unavailable.' });
+  } finally {
+    clearTimeout(timeout);
   }
 });
 
