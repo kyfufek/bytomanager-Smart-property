@@ -135,6 +135,8 @@ backend/
   - prijima `name`, `email`, `message`
   - backend pouze validuje payload a preposila JSON na `N8N_CONTACT_WEBHOOK_URL`
   - pri nedostupnem n8n webhooku vraci `502`
+  - produkcne miri na n8n workflow `Contact form -> CSV + AI draft`
+  - workflow uklada prijate zpravy do serveroveho CSV `~/data/contact-form.csv` a pres OpenAI generuje kratky cesky navrh odpovedi
 - Chat endpoint `POST /api/chat` je chraneny auth middleware a pouziva LLM service vrstvu.
 - Platebni vrstva:
   - `GET /api/payments`
