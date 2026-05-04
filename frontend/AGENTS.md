@@ -25,7 +25,7 @@ Frontend je aplikace postavena na React + Vite + Tailwind CSS.
 - `SettingsPage` nacita/uklada profil pres backend endpointy:
   - `GET /api/profile`
   - `PUT /api/profile`
-- `ContactPage` poskytuje route `/kontakt` v hlavni sidebar navigaci a odesila formular na:
+- `ContactPage` poskytuje verejnou route `/kontakt`; prihlasenym uzivatelum se zobrazuje i v hlavni sidebar navigaci a odesila formular na:
   - `POST /api/contact`
   - po uspechu zobrazuje success toast a textovou potvrzovaci hlasku v karte
   - pri chybe zobrazuje destructive toast a ponecha vyplnenou zpravu pro opakovani
@@ -41,7 +41,8 @@ Frontend je aplikace postavena na React + Vite + Tailwind CSS.
 ## Auth flow
 
 - auth route: `GET /auth`
-- chranene route (`/`, `/properties`, `/tenants`, `/finance`, `/kontakt`, `/documents`, `/settings`) jsou obalene v `ProtectedRoute`
+- chranene route (`/`, `/properties`, `/tenants`, `/finance`, `/documents`, `/settings`) jsou obalene v `ProtectedRoute`
+- route `/kontakt` je verejna; prihlasenym uzivatelum zustava zobrazena v `AppLayout`, neprihlasenym v jednoduche verejne strance s logem a odkazem na prihlaseni
 - auth stav spravuje `AuthContext` pres Supabase (`isAuthenticated`, `login`, `register`, `logout`, `onAuthStateChange`)
 - session je perzistentni pres Supabase klienta
 - odhlaseni je v `AppHeader` a presmeruje na `/auth`

@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/AppLayout";
-import { AuthProvider } from "@/context/AuthContext";
+import { Logo } from "@/components/Logo";
+import { Button } from "@/components/ui/button";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import AuthPage from "./pages/AuthPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -18,6 +20,38 @@ import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
+
+function ContactRoute() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <div className="p-6 text-sm text-muted-foreground">Overuji prihlaseni...</div>;
+  }
+
+  if (isAuthenticated) {
+    return (
+      <AppLayout>
+        <ContactPage />
+      </AppLayout>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="border-b bg-card px-4 py-3">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
+          <Logo />
+          <Button asChild variant="outline" size="sm">
+            <Link to="/auth">Prihlasit se</Link>
+          </Button>
+        </div>
+      </header>
+      <main className="px-4 py-6 sm:px-6">
+        <ContactPage />
+      </main>
+    </div>
+  );
+}
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -81,13 +115,7 @@ const App = () => (
             />
             <Route
               path="/kontakt"
-              element={
-                <ProtectedRoute>
-                  <AppLayout>
-                    <ContactPage />
-                  </AppLayout>
-                </ProtectedRoute>
-              }
+              element={<ContactRoute />}
             />
             <Route
               path="/documents"
